@@ -6,7 +6,7 @@ import torch
 SAMPLE_RATE = 16000
 
 def load_audio(path: str | Path) -> torch.Tensor:
-    audio, sample_rate = sf.read(path, dtype="float16")
+    audio, sample_rate = sf.read(path, dtype="float32")
 
     if sample_rate != SAMPLE_RATE:
         raise ValueError(f"Expected {SAMPLE_RATE} Hz, got {sample_rate} Hz")
