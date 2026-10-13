@@ -1,121 +1,230 @@
 import torch
+
+from jiwer import cer, wer
+from pyctcdecode import build_ctcdecoder
 from torch.utils.data import DataLoader
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-from peft import PeftModel
-from jiwer import wer, cer
 
-from dataset import SpeechDataset
-from collator import DataCollatorCTC
-
-
-MODEL_NAME = "facebook/wav2vec2-xls-r-300m"
-MODEL_PATH = "outputs/lora"
-
-VALID_CSV = "data/karakalpak-combined/valid.csv"
-TEST_CSV = "data/karakalpak-combined/test.csv"
-
-
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
+from config import (
+    TEST_CSV,
+    KENLM_PATH,
+    BEAM_WIDTH,
+    LM_ALPHA,
+    LM_BETA,
 )
 
-processor = Wav2Vec2Processor.from_pretrained(MODEL_PATH)
-
-base_model = Wav2Vec2ForCTC.from_pretrained(
-    MODEL_NAME,
-    vocab_size=len(processor.tokenizer),
-    pad_token_id=processor.tokenizer.pad_token_id,
-    ctc_loss_reduction="mean"
-)
-
-model = PeftModel.from_pretrained(
-    base_model,
-    MODEL_PATH
-)
-
-model = model.to(device)
-model.eval()
-
-collator = DataCollatorCTC(processor)
+from data import SpeechDataset, DataCollatorCTC
+from model import load_trained_model
+from processor import load_processor
 
 
-def evaluate(csv_path, name):
+def create_decoder(processor):
+    vocab = processor.tokenizer.get_vocab()
+
+    labels = [
+        ""
+        for _ in range(len(processor.tokenizer))
+    ]
+
+    for token, index in vocab.items():
+        labels[index] = token
+
+    for index, token in enumerate(labels):
+        if token == "|":
+            labels[index] = " "
+
+        elif token == "[PAD]":
+            labels[index] = ""
+
+    decoder = build_ctcdecoder(
+        labels=labels,
+        kenlm_model_path=str(KENLM_PATH),
+        alpha=LM_ALPHA,
+        beta=LM_BETA,
+    )
+
+    return decoder
+
+
+def evaluate(
+    model,
+    processor,
+    decoder,
+    device,
+):
     dataset = SpeechDataset(
-        csv_path=csv_path,
-        processor=processor
+        TEST_CSV,
+        processor,
+    )
+
+    collator = DataCollatorCTC(
+        processor
     )
 
     loader = DataLoader(
         dataset,
         batch_size=1,
         shuffle=False,
-        collate_fn=collator
+        collate_fn=collator,
     )
 
-    predictions = []
     references = []
+    predictions = []
+
     total_loss = 0
 
-    with torch.inference_mode():
-        for step, batch in enumerate(loader):
-            input_values = batch["input_values"].to(device)
-            labels = batch["labels"].to(device)
+    model.eval()
 
-            attention_mask = batch.get("attention_mask")
+    with torch.inference_mode():
+
+        for step, batch in enumerate(loader):
+            input_values = batch[
+                "input_values"
+            ].to(device)
+
+            labels = batch[
+                "labels"
+            ].to(device)
+
+            attention_mask = batch.get(
+                "attention_mask"
+            )
 
             if attention_mask is not None:
-                attention_mask = attention_mask.to(device)
+                attention_mask = attention_mask.to(
+                    device
+                )
 
             outputs = model(
                 input_values=input_values,
                 attention_mask=attention_mask,
-                labels=labels
+                labels=labels,
             )
 
             total_loss += outputs.loss.item()
 
-            predicted_ids = torch.argmax(
-                outputs.logits,
-                dim=-1
+            logits = (
+                outputs.logits[0]
+                .float()
+                .cpu()
+                .numpy()
             )
 
-            prediction = processor.batch_decode(
-                predicted_ids
-            )
+            prediction = decoder.decode(
+                logits,
+                beam_width=BEAM_WIDTH,
+            ).strip()
 
-            labels = labels.clone()
-            labels[labels == -100] = processor.tokenizer.pad_token_id
+            labels_for_decode = labels.clone()
+
+            labels_for_decode[
+                labels_for_decode == -100
+            ] = processor.tokenizer.pad_token_id
 
             reference = processor.batch_decode(
-                labels,
-                group_tokens=False
+                labels_for_decode,
+                group_tokens=False,
+            )[0].strip()
+
+            predictions.append(
+                prediction
             )
 
-            predictions.extend(prediction)
-            references.extend(reference)
+            references.append(
+                reference
+            )
 
             if step % 100 == 0:
-                print(f"{name}: {step}/{len(loader)}")
+                print(
+                    f"Test: {step}/{len(loader)}"
+                )
 
-    average_loss = total_loss / len(loader)
-    word_error_rate = wer(references, predictions)
-    character_error_rate = cer(references, predictions)
+    average_loss = (
+        total_loss / len(loader)
+    )
+
+    word_error_rate = wer(
+        references,
+        predictions,
+    )
+
+    character_error_rate = cer(
+        references,
+        predictions,
+    )
 
     print()
-    print(f"{name} Loss: {average_loss:.4f}")
-    print(f"{name} WER: {word_error_rate * 100:.2f}%")
-    print(f"{name} CER: {character_error_rate * 100:.2f}%")
+    print("Test")
+    print(
+        f"Loss: {average_loss:.4f}"
+    )
+
+    print()
+    print("Beam Search + KenLM")
+    print(
+        f"WER: {word_error_rate * 100:.2f}%"
+    )
+    print(
+        f"CER: {character_error_rate * 100:.2f}%"
+    )
+
+    print()
+    print(
+        f"Beam width: {BEAM_WIDTH}"
+    )
+    print(
+        f"LM alpha: {LM_ALPHA}"
+    )
+    print(
+        f"LM beta: {LM_BETA}"
+    )
 
     print()
     print("Examples:")
 
-    for reference, prediction in list(
-        zip(references, predictions)
-    )[:5]:
-        print("Reference:", reference)
-        print("Prediction:", prediction)
+    for i in range(
+        min(10, len(references))
+    ):
         print()
+        print(
+            "Reference:",
+            references[i]
+        )
+
+        print(
+            "Prediction:",
+            predictions[i]
+        )
 
 
-# evaluate(VALID_CSV, "Validation")
-evaluate(TEST_CSV, "Test")
+def main():
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
+
+    print(
+        "Device:",
+        device
+    )
+
+    processor = load_processor()
+
+    model = load_trained_model(
+        processor
+    ).to(device)
+
+    decoder = create_decoder(
+        processor
+    )
+
+    evaluate(
+        model,
+        processor,
+        decoder,
+        device,
+    )
+
+
+if __name__ == "__main__":
+    main()

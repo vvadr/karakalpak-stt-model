@@ -1,73 +1,256 @@
+import math
+import random
+
+import numpy as np
 import torch
+
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from transformers import get_linear_schedule_with_warmup
 
-from processor import processor
-from dataset import SpeechDataset
-from collator import DataCollatorCTC
-from model import model
-
-
-TRAIN_CSV = "data/karakalpak-combined/train.csv"
-
-train_dataset = SpeechDataset(
-    csv_path=TRAIN_CSV,
-    processor=processor
+from config import (
+    TRAIN_CSV,
+    OUTPUT_DIR,
+    BATCH_SIZE,
+    EPOCHS,
+    LEARNING_RATE,
+    GRAD_ACCUMULATION,
+    WARMUP_RATIO,
+    SEED,
+    LOG_EVERY,
 )
 
-data_collator = DataCollatorCTC(
-    processor=processor
+from data import SpeechDataset, DataCollatorCTC
+from model import (
+    create_train_model,
+    load_train_model,
 )
+from processor import create_processor
 
-train_loader = DataLoader(
-    train_dataset,
-    batch_size=1,
-    shuffle=True,
-    collate_fn=data_collator
-)
 
-device = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
+STATE_PATH = OUTPUT_DIR / "training_state.pt"
+ADAPTER_PATH = OUTPUT_DIR / "adapter_config.json"
 
-model = model.to(device)
-model.train()
 
-optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+def set_seed():
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
 
-epochs = 5
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(SEED)
 
-for epoch in range(epochs):
-    total_loss = 0
 
-    for step, batch in enumerate(train_loader):
-        input_values = batch["input_values"].to(device)
-        labels = batch["labels"].to(device)
+def main():
+    set_seed()
 
-        attention_mask = batch.get("attention_mask")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu"
+    )
 
-        if attention_mask is not None:
-            attention_mask = attention_mask.to(device)
+    print("Device:", device)
 
-        optimizer.zero_grad()
+    processor = create_processor()
 
-        outputs = model(input_values=input_values, attention_mask=attention_mask, labels=labels)
+    train_dataset = SpeechDataset(TRAIN_CSV, processor,)
 
-        loss = outputs.loss
+    collator = DataCollatorCTC(processor)
 
-        loss.backward()
+    shuffle_generator = torch.Generator()
 
-        optimizer.step()
+    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE, collate_fn=collator, generator=shuffle_generator,)
 
-        total_loss += loss.item()
+    resume = (STATE_PATH.exists() and ADAPTER_PATH.exists())
 
-        if step % 10 == 0:
-            print(f"Epoch {epoch + 1} | "f"Step {step} | "f"Loss {loss.item():.4f}")
+    if resume:
+        print("Loading saved training checkpoint...")
 
-    average_loss = total_loss / len(train_loader)
+        model = load_train_model(processor).to(device)
+    else:
+        print("Starting new training...")
 
-    print(f"Epoch {epoch + 1} finished | "f"Average loss: {average_loss:.4f}")
+        model = create_train_model(processor).to(device)
 
-model.save_pretrained("outputs/lora", save_embedding_layers=False)
+    optimizer = AdamW((parameter for parameter in model.parameters() if parameter.requires_grad), lr=LEARNING_RATE,)
 
-processor.save_pretrained("outputs/lora")
+    updates_per_epoch = math.ceil(len(train_loader) / GRAD_ACCUMULATION)
+
+    total_training_steps = (updates_per_epoch * EPOCHS)
+
+    warmup_steps = int(total_training_steps * WARMUP_RATIO)
+
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_training_steps,)
+
+    start_epoch = 0
+
+    if resume:
+        checkpoint = torch.load(
+            STATE_PATH,
+            map_location=device,
+            weights_only=False,
+        )
+
+        optimizer.load_state_dict(
+            checkpoint["optimizer"]
+        )
+
+        scheduler.load_state_dict(
+            checkpoint["scheduler"]
+        )
+
+        start_epoch = checkpoint["epoch"]
+
+        print(
+            f"Resuming from epoch "
+            f"{start_epoch + 1}"
+        )
+
+    if start_epoch >= EPOCHS:
+        print(
+            f"Training already completed "
+            f"{start_epoch}/{EPOCHS} epochs."
+        )
+        return
+
+    for epoch in range(
+        start_epoch,
+        EPOCHS
+    ):
+        shuffle_generator.manual_seed(
+            SEED + epoch
+        )
+
+        model.train()
+
+        total_loss = 0
+
+        optimizer.zero_grad(
+            set_to_none=True
+        )
+
+        for step, batch in enumerate(train_loader):
+            input_values = batch[
+                "input_values"
+            ].to(device)
+
+            labels = batch[
+                "labels"
+            ].to(device)
+
+            attention_mask = batch.get(
+                "attention_mask"
+            )
+
+            if attention_mask is not None:
+                attention_mask = (
+                    attention_mask.to(device)
+                )
+
+            outputs = model(
+                input_values=input_values,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
+
+            loss = outputs.loss
+
+            group_start = (
+                step // GRAD_ACCUMULATION
+            ) * GRAD_ACCUMULATION
+
+            group_size = min(
+                GRAD_ACCUMULATION,
+                len(train_loader) - group_start,
+            )
+
+            scaled_loss = (
+                loss / group_size
+            )
+
+            scaled_loss.backward()
+
+            total_loss += loss.item()
+
+            should_update = (
+                (step + 1)
+                % GRAD_ACCUMULATION
+                == 0
+                or
+                step + 1
+                == len(train_loader)
+            )
+
+            if should_update:
+                torch.nn.utils.clip_grad_norm_(
+                    model.parameters(),
+                    max_norm=1.0,
+                )
+
+                optimizer.step()
+                scheduler.step()
+
+                optimizer.zero_grad(
+                    set_to_none=True
+                )
+
+            if step % LOG_EVERY == 0:
+                current_lr = (
+                    scheduler.get_last_lr()[0]
+                )
+
+                print(
+                    f"Epoch {epoch + 1}/{EPOCHS} "
+                    f"| Step {step}/{len(train_loader)} "
+                    f"| Loss {loss.item():.4f} "
+                    f"| LR {current_lr:.8f}"
+                )
+
+        average_loss = (
+            total_loss
+            / len(train_loader)
+        )
+
+        print()
+        print(
+            f"Epoch {epoch + 1} finished "
+            f"| Average loss: "
+            f"{average_loss:.4f}"
+        )
+
+        OUTPUT_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        model.save_pretrained(
+            str(OUTPUT_DIR),
+            save_embedding_layers=False,
+        )
+
+        processor.save_pretrained(
+            str(OUTPUT_DIR)
+        )
+
+        torch.save(
+            {
+                "epoch": epoch + 1,
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+            },
+            STATE_PATH,
+        )
+
+        print(
+            f"Checkpoint saved: "
+            f"epoch {epoch + 1}"
+        )
+        print()
+
+    print("Training finished.")
+    print(
+        "Saved model:",
+        OUTPUT_DIR
+    )
+
+
+if __name__ == "__main__":
+    main()

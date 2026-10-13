@@ -1,26 +1,24 @@
-import pandas as pd
 import json
 
-TRAIN_CSV = "data/karakalpak-combined/train.csv"
-VOCAB_PATH = "vocab.json"
+import pandas as pd
+
+from config import TRAIN_CSV, VOCAB_PATH
 
 
-def build_vocab(csv_path):
-    df = pd.read_csv(csv_path)
+def build_vocab():
+    df = pd.read_csv(TRAIN_CSV)
 
     characters = set()
 
-    for text in df["text"].astype(str):
+    for text in df["text"].dropna().astype(str):
         text = text.strip().lower()
-
-        for char in text:
-            characters.add(char)
+        characters.update(text)
 
     characters.discard(" ")
 
     vocab = {
-        char: i
-        for i, char in enumerate(sorted(characters))
+        char: index
+        for index, char in enumerate(sorted(characters))
     }
 
     vocab["|"] = len(vocab)
@@ -30,15 +28,19 @@ def build_vocab(csv_path):
     return vocab
 
 
-vocab = build_vocab(TRAIN_CSV)
+def save_vocab(vocab):
+    with open(VOCAB_PATH, "w", encoding="utf-8") as f:
+        json.dump(
+            vocab,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
 
-with open(VOCAB_PATH, "w", encoding="utf-8") as f:
-    json.dump(
-        vocab,
-        f,
-        ensure_ascii=False,
-        indent=2
-    )
 
-print(vocab)
-print("Vocabulary size:", len(vocab))
+if __name__ == "__main__":
+    vocab = build_vocab()
+    save_vocab(vocab)
+
+    print(vocab)
+    print("Vocabulary size:", len(vocab))
