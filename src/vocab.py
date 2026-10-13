@@ -1,45 +1,44 @@
+import pandas as pd
 import json
-from pathlib import Path
 
-TRANSCRIPTS_PATH = "data/text/transcripts.txt"
+TRAIN_CSV = "data/karakalpak-combined/train.csv"
 VOCAB_PATH = "vocab.json"
 
-def build_vocab(transcripts_path):
+
+def build_vocab(csv_path):
+    df = pd.read_csv(csv_path)
+
     characters = set()
 
-    with open(transcripts_path, "r", encoding="utf-8") as f:
-        for line in f:
-            text = line.strip().lower()
+    for text in df["text"].astype(str):
+        text = text.strip().lower()
 
-            for char in text:
-                characters.add(char)
+        for char in text:
+            characters.add(char)
 
-        characters.discard(" ")
+    characters.discard(" ")
 
-        vocab = {
-            char: index
-            for index, char in enumerate(sorted(characters))
-        }
+    vocab = {
+        char: i
+        for i, char in enumerate(sorted(characters))
+    }
 
-        vocab["|"] = len(vocab)
-        vocab["[UNK]"] = len(vocab)
-        vocab["[PAD]"] = len(vocab)
+    vocab["|"] = len(vocab)
+    vocab["[UNK]"] = len(vocab)
+    vocab["[PAD]"] = len(vocab)
 
-        return vocab
-
-def save_vocab(vocab, path):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(
-            vocab,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    return vocab
 
 
-if __name__ == "__main__":
-    vocab = build_vocab(TRANSCRIPTS_PATH)
-    save_vocab(vocab, VOCAB_PATH)
+vocab = build_vocab(TRAIN_CSV)
 
-    print(vocab)
-    print("Vocabulary size:", len(vocab))
+with open(VOCAB_PATH, "w", encoding="utf-8") as f:
+    json.dump(
+        vocab,
+        f,
+        ensure_ascii=False,
+        indent=2
+    )
+
+print(vocab)
+print("Vocabulary size:", len(vocab))
