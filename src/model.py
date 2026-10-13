@@ -1,71 +1,47 @@
-from peft import (
-    LoraConfig,
-    PeftModel,
-    get_peft_model,
-)
+import os
 
 from transformers import Wav2Vec2ForCTC
+from peft import LoraConfig, get_peft_model, PeftModel
 
-from config import (
-    MODEL_NAME,
-    OUTPUT_DIR,
-    LORA_R,
-    LORA_ALPHA,
-    LORA_DROPOUT,
-    LORA_TARGETS,
-)
+from processor import processor
 
 
-def create_base_model(processor):
-    return Wav2Vec2ForCTC.from_pretrained(
-        MODEL_NAME,
-        vocab_size=len(processor.tokenizer),
-        pad_token_id=processor.tokenizer.pad_token_id,
-        ctc_loss_reduction="mean",
-        ctc_zero_infinity=True,
-    )
+MODEL_NAME = "facebook/wav2vec2-xls-r-300m"
+ADAPTER_DIR = "outputs/lora"
+
+tokenizer = processor.tokenizer
 
 
-def create_train_model(processor):
-    model = create_base_model(processor)
-
-    lora_config = LoraConfig(
-        r=LORA_R,
-        lora_alpha=LORA_ALPHA,
-        lora_dropout=LORA_DROPOUT,
-        target_modules=LORA_TARGETS,
-        modules_to_save=["lm_head"],
-        bias="none",
-    )
-
-    model = get_peft_model(
-        model,
-        lora_config,
-    )
-
-    model.print_trainable_parameters()
-
+def create_base_model():
+    model = Wav2Vec2ForCTC.from_pretrained(MODEL_NAME, vocab_size=len(tokenizer), pad_token_id=tokenizer.pad_token_id, ctc_loss_reduction="mean", ctc_zero_infinity=True, ignore_mismatched_sizes=True)
+    model.freeze_feature_encoder()
     return model
 
 
-def load_train_model(processor):
-    base_model = create_base_model(processor)
+base_model = create_base_model()
 
-    model = PeftModel.from_pretrained(
-        base_model,
-        str(OUTPUT_DIR),
-        is_trainable=True,
-    )
+adapter_config_path = os.path.join(ADAPTER_DIR, "adapter_config.json")
 
-    model.print_trainable_parameters()
+if os.path.exists(adapter_config_path):
+    print(f"Loading existing LoRA adapter from: {ADAPTER_DIR}")
+    model = PeftModel.from_pretrained(base_model, ADAPTER_DIR, is_trainable=True)
 
-    return model
+else:
+    print("Creating new LoRA adapter")
+
+    lora_config = LoraConfig(r=8, lora_alpha=16, lora_dropout=0.05, target_modules=["q_proj", "v_proj"], modules_to_save=["lm_head"], bias="none")
+    model = get_peft_model(base_model, lora_config)
 
 
-def load_trained_model(processor):
-    base_model = create_base_model(processor)
+print("\nTrainable parameters:")
+model.print_trainable_parameters()
 
-    return PeftModel.from_pretrained(
-        base_model,
-        str(OUTPUT_DIR),
-    )
+print("\nlm_head status:")
+
+for name, parameter in model.named_parameters():
+    if "lm_head" in name:
+        print(name, "trainable =", parameter.requires_grad)
+
+print("\nCTC configuration:")
+print("Tokenizer PAD ID:", tokenizer.pad_token_id)
+print("Model PAD ID:", base_model.config.pad_token_id)
