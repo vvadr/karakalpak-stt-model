@@ -54,6 +54,14 @@ setup, execution order, dataset paths, and limitations.
 The combined recordings total **8 hours, 33 minutes, 3 seconds**:
 6 hours, 50 minutes, 15 seconds in train and 1 hour, 42 minutes, 48 seconds in test.
 
+## Wav2vec2 XLS-R 300M with LoRA
+
+Run `train.py` to train a character CTC model with your own corpus vocabulary
+and PEFT LoRA. Checkpoints, validation predictions, and the standalone exported
+model are saved in separate directories under `/checkpoints/`.
+See [docs/wav2vec_lora_training.md](docs/wav2vec_lora_training.md) for setup,
+the data audit, training settings, checkpoint resume, evaluation, and inference.
+
 ## Splits and cleaning
 
 The split is 80% train / 20% test, rounded per source, with seed 42. Assignments
