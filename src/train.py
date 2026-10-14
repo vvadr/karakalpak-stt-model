@@ -1,4 +1,5 @@
 import csv
+import os
 
 import torch
 from transformers import Trainer, TrainingArguments
@@ -11,6 +12,17 @@ from evaluate_model import evaluate_tests
 from metrics import argmax_logits, make_compute_metrics
 from model import build_model
 from processor import build_processor
+
+
+class CTCTrainer(Trainer):
+    # The new CTC head is saved through LoRA's modules_to_save. Without save_embedding_layers=False,
+    # PEFT sees the head's new size and also tries to save "embedding layers", which wav2vec2 doesn't have.
+    def _save(self, output_dir=None, state_dict=None):
+        output_dir = output_dir or self.args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        self.model.save_pretrained(output_dir, state_dict=state_dict, save_embedding_layers=False)
+        self.processing_class.save_pretrained(output_dir)
+        torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
 
 def save_history(log_history):
@@ -39,6 +51,8 @@ def main():
         learning_rate=config.LEARNING_RATE,
         warmup_steps=config.WARMUP_RATIO,
         bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+        gradient_checkpointing=config.GRADIENT_CHECKPOINTING,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         train_sampling_strategy="group_by_length",
         length_column_name="duration",
         eval_strategy="epoch",
@@ -55,11 +69,15 @@ def main():
         seed=config.SEED,
     )
 
-    trainer = Trainer(
+    train_data = load_split(config.TRAIN_CSVS, config.TRAIN_FILES)
+    validation_data = load_split(config.VALIDATION_CSVS, config.EVAL_FILES)
+    print(f"Train: {len(train_data)} files ({sum(train_data['duration']) / 3600:.2f} h)   Validation: {len(validation_data)} files")
+
+    trainer = CTCTrainer(
         model=model,
         args=args,
-        train_dataset=load_split(config.TRAIN_CSVS),
-        eval_dataset=load_split(config.VALIDATION_CSVS),
+        train_dataset=train_data,
+        eval_dataset=validation_data,
         data_collator=DataCollatorCTC(processor),
         processing_class=processor,
         compute_metrics=make_compute_metrics(processor),

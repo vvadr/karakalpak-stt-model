@@ -32,7 +32,7 @@ def evaluate_tests(model_dir=None):
     results = {}
 
     for name, csv_name in config.TEST_CSVS.items():
-        data = load_split([csv_name])
+        data = load_split([csv_name], config.EVAL_FILES)
         output = trainer.predict(data, metric_key_prefix=name)
         predictions, references = decode(processor, output.predictions, output.label_ids)
 

@@ -15,8 +15,11 @@ def main():
     print(f"LM text: {len(sentences)} sentences ({len(train_text) - len(sentences)} removed because they are in validation/test)")
 
     lmplz = config.KENLM_BIN / "lmplz"
-    with open(text_path, "rb") as source, open(config.LM_PATH, "wb") as target:
-        subprocess.run([str(lmplz), "-o", str(config.LM_ORDER), "--discount_fallback"], stdin=source, stdout=target, check=True)
+    partial = config.LM_PATH.with_suffix(".partial")
+    with open(text_path, "rb") as source, open(partial, "wb") as target:
+        # -S caps lmplz's sorting memory (default 80% of RAM, which would starve a running training job)
+        subprocess.run([str(lmplz), "-o", str(config.LM_ORDER), "--discount_fallback", "-S", "1G"], stdin=source, stdout=target, check=True)
+    partial.replace(config.LM_PATH)
 
     print("Saved to:", config.LM_PATH)
 

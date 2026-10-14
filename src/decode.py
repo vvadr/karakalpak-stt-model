@@ -16,7 +16,7 @@ from dataset import load_split
 
 
 def get_logits(model, processor, data):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     model.to(device).eval()
     loader = DataLoader(data, batch_size=config.BATCH_SIZE, collate_fn=DataCollatorCTC(processor), num_workers=config.NUM_WORKERS)
     all_logits = []
@@ -73,8 +73,8 @@ def main(model_dir=None):
     beam_decoder = build_ctcdecoder(labels)
     kenlm_decoder = build_ctcdecoder(labels, kenlm_model_path=str(config.LM_PATH))
 
-    sets = {"validation": load_split(config.VALIDATION_CSVS)}
-    sets.update({f"{name}_test": load_split([csv_name]) for name, csv_name in config.TEST_CSVS.items()})
+    sets = {"validation": load_split(config.VALIDATION_CSVS, config.EVAL_FILES)}
+    sets.update({f"{name}_test": load_split([csv_name], config.EVAL_FILES) for name, csv_name in config.TEST_CSVS.items()})
     logits = {name: get_logits(model, processor, data) for name, data in sets.items()}
     references = {name: list(data["text"]) for name, data in sets.items()}
 
