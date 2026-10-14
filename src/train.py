@@ -1,255 +1,83 @@
-import math
-import random
+import csv
 
-import numpy as np
 import torch
+from transformers import Trainer, TrainingArguments
+from transformers.trainer_utils import get_last_checkpoint
 
-from torch.optim import AdamW
-from torch.utils.data import DataLoader
-from transformers import get_linear_schedule_with_warmup
-
-from config import (
-    TRAIN_CSV,
-    OUTPUT_DIR,
-    BATCH_SIZE,
-    EPOCHS,
-    LEARNING_RATE,
-    GRAD_ACCUMULATION,
-    WARMUP_RATIO,
-    SEED,
-    LOG_EVERY,
-)
-
-from data import SpeechDataset, DataCollatorCTC
-from model import (
-    create_train_model,
-    load_train_model,
-)
-from processor import create_processor
+import config
+from collator import DataCollatorCTC
+from dataset import load_split
+from evaluate_model import evaluate_tests
+from metrics import argmax_logits, make_compute_metrics
+from model import build_model
+from processor import build_processor
 
 
-STATE_PATH = OUTPUT_DIR / "training_state.pt"
-ADAPTER_PATH = OUTPUT_DIR / "adapter_config.json"
+def save_history(log_history):
+    rows = [{"epoch": round(log["epoch"]), "step": log["step"], "loss": round(log["eval_loss"], 4), "wer": round(log["eval_wer"], 4), "cer": round(log["eval_cer"], 4)} for log in log_history if "eval_wer" in log]
 
+    with open(config.OUTPUT_DIR / "history.csv", "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["epoch", "step", "loss", "wer", "cer"])
+        writer.writeheader()
+        writer.writerows(rows)
 
-def set_seed():
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(SEED)
+    print("\nValidation WER/CER per epoch:")
+    for row in rows:
+        print(f"  epoch {row['epoch']:>2}: WER {row['wer']:.2%}  CER {row['cer']:.2%}  loss {row['loss']}")
 
 
 def main():
-    set_seed()
+    processor = build_processor()
+    model = build_model(processor)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu"
+    args = TrainingArguments(
+        output_dir=str(config.CHECKPOINT_DIR),
+        num_train_epochs=config.EPOCHS,
+        per_device_train_batch_size=config.BATCH_SIZE,
+        per_device_eval_batch_size=config.BATCH_SIZE,
+        gradient_accumulation_steps=config.GRADIENT_ACCUMULATION,
+        learning_rate=config.LEARNING_RATE,
+        warmup_steps=config.WARMUP_RATIO,
+        bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+        train_sampling_strategy="group_by_length",
+        length_column_name="duration",
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        save_total_limit=2,
+        load_best_model_at_end=True,
+        metric_for_best_model="wer",
+        greater_is_better=False,
+        logging_steps=50,
+        dataloader_num_workers=config.NUM_WORKERS,
+        remove_unused_columns=False,
+        label_names=["labels"],
+        report_to="none",
+        seed=config.SEED,
     )
 
-    print("Device:", device)
-
-    processor = create_processor()
-
-    train_dataset = SpeechDataset(TRAIN_CSV, processor,)
-
-    collator = DataCollatorCTC(processor)
-
-    shuffle_generator = torch.Generator()
-
-    train_loader = DataLoader(train_dataset, shuffle=True, batch_size=BATCH_SIZE, collate_fn=collator, generator=shuffle_generator,)
-
-    resume = (STATE_PATH.exists() and ADAPTER_PATH.exists())
-
-    if resume:
-        print("Loading saved training checkpoint...")
-
-        model = load_train_model(processor).to(device)
-    else:
-        print("Starting new training...")
-
-        model = create_train_model(processor).to(device)
-
-    optimizer = AdamW((parameter for parameter in model.parameters() if parameter.requires_grad), lr=LEARNING_RATE,)
-
-    updates_per_epoch = math.ceil(len(train_loader) / GRAD_ACCUMULATION)
-
-    total_training_steps = (updates_per_epoch * EPOCHS)
-
-    warmup_steps = int(total_training_steps * WARMUP_RATIO)
-
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_training_steps,)
-
-    start_epoch = 0
-
-    if resume:
-        checkpoint = torch.load(
-            STATE_PATH,
-            map_location=device,
-            weights_only=False,
-        )
-
-        optimizer.load_state_dict(
-            checkpoint["optimizer"]
-        )
-
-        scheduler.load_state_dict(
-            checkpoint["scheduler"]
-        )
-
-        start_epoch = checkpoint["epoch"]
-
-        print(
-            f"Resuming from epoch "
-            f"{start_epoch + 1}"
-        )
-
-    if start_epoch >= EPOCHS:
-        print(
-            f"Training already completed "
-            f"{start_epoch}/{EPOCHS} epochs."
-        )
-        return
-
-    for epoch in range(
-        start_epoch,
-        EPOCHS
-    ):
-        shuffle_generator.manual_seed(
-            SEED + epoch
-        )
-
-        model.train()
-
-        total_loss = 0
-
-        optimizer.zero_grad(
-            set_to_none=True
-        )
-
-        for step, batch in enumerate(train_loader):
-            input_values = batch[
-                "input_values"
-            ].to(device)
-
-            labels = batch[
-                "labels"
-            ].to(device)
-
-            attention_mask = batch.get(
-                "attention_mask"
-            )
-
-            if attention_mask is not None:
-                attention_mask = (
-                    attention_mask.to(device)
-                )
-
-            outputs = model(
-                input_values=input_values,
-                attention_mask=attention_mask,
-                labels=labels,
-            )
-
-            loss = outputs.loss
-
-            group_start = (
-                step // GRAD_ACCUMULATION
-            ) * GRAD_ACCUMULATION
-
-            group_size = min(
-                GRAD_ACCUMULATION,
-                len(train_loader) - group_start,
-            )
-
-            scaled_loss = (
-                loss / group_size
-            )
-
-            scaled_loss.backward()
-
-            total_loss += loss.item()
-
-            should_update = (
-                (step + 1)
-                % GRAD_ACCUMULATION
-                == 0
-                or
-                step + 1
-                == len(train_loader)
-            )
-
-            if should_update:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(),
-                    max_norm=1.0,
-                )
-
-                optimizer.step()
-                scheduler.step()
-
-                optimizer.zero_grad(
-                    set_to_none=True
-                )
-
-            if step % LOG_EVERY == 0:
-                current_lr = (
-                    scheduler.get_last_lr()[0]
-                )
-
-                print(
-                    f"Epoch {epoch + 1}/{EPOCHS} "
-                    f"| Step {step}/{len(train_loader)} "
-                    f"| Loss {loss.item():.4f} "
-                    f"| LR {current_lr:.8f}"
-                )
-
-        average_loss = (
-            total_loss
-            / len(train_loader)
-        )
-
-        print()
-        print(
-            f"Epoch {epoch + 1} finished "
-            f"| Average loss: "
-            f"{average_loss:.4f}"
-        )
-
-        OUTPUT_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        model.save_pretrained(
-            str(OUTPUT_DIR),
-            save_embedding_layers=False,
-        )
-
-        processor.save_pretrained(
-            str(OUTPUT_DIR)
-        )
-
-        torch.save(
-            {
-                "epoch": epoch + 1,
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-            },
-            STATE_PATH,
-        )
-
-        print(
-            f"Checkpoint saved: "
-            f"epoch {epoch + 1}"
-        )
-        print()
-
-    print("Training finished.")
-    print(
-        "Saved model:",
-        OUTPUT_DIR
+    trainer = Trainer(
+        model=model,
+        args=args,
+        train_dataset=load_split(config.TRAIN_CSVS),
+        eval_dataset=load_split(config.VALIDATION_CSVS),
+        data_collator=DataCollatorCTC(processor),
+        processing_class=processor,
+        compute_metrics=make_compute_metrics(processor),
+        preprocess_logits_for_metrics=argmax_logits,
     )
+
+    last_checkpoint = get_last_checkpoint(str(config.CHECKPOINT_DIR)) if config.CHECKPOINT_DIR.exists() else None
+    print("Resuming from:", last_checkpoint or "nothing, starting from scratch")
+    trainer.train(resume_from_checkpoint=last_checkpoint)
+
+    save_history(trainer.state.log_history)
+
+    model = trainer.model.merge_and_unload()
+    model.save_pretrained(config.FINAL_MODEL_DIR)
+    processor.save_pretrained(config.FINAL_MODEL_DIR)
+    print("Best model saved to:", config.FINAL_MODEL_DIR)
+
+    evaluate_tests(config.FINAL_MODEL_DIR)
 
 
 if __name__ == "__main__":

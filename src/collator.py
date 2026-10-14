@@ -1,26 +1,15 @@
-from dataclasses import dataclass
-from typing import Dict, List, Union
-
-import torch
-
-from processor import processor
+import soundfile as sf
 
 
-@dataclass
 class DataCollatorCTC:
-    padding: Union[bool, str] = True
+    def __init__(self, processor):
+        self.processor = processor
 
-    def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
-        input_features = [{"input_values": feature["input_values"]} for feature in features]
+    def __call__(self, rows):
+        audio = [sf.read(row["audio_path"], dtype="float32")[0] for row in rows]
+        batch = self.processor.feature_extractor(audio, sampling_rate=16000, padding=True, return_tensors="pt")
 
-        batch = processor.feature_extractor.pad(input_features, padding=self.padding, return_tensors="pt")
-
-        label_features = [{"input_ids": feature["labels"]} for feature in features]
-
-        labels_batch = processor.tokenizer.pad(label_features, padding=self.padding, return_tensors="pt")
-
-        labels = labels_batch["input_ids"].masked_fill(labels_batch["attention_mask"].ne(1), -100)
-
-        batch["labels"] = labels
+        labels = self.processor.tokenizer([row["text"] for row in rows], padding=True, return_tensors="pt")
+        batch["labels"] = labels["input_ids"].masked_fill(labels["attention_mask"].ne(1), -100)
 
         return batch

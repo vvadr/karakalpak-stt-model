@@ -1,48 +1,24 @@
-from pathlib import Path
-
 import pandas as pd
-import soundfile as sf
-from torch.utils.data import Dataset
+from datasets import Dataset
+
+import config
 
 
-class SpeechDataset(Dataset):
-    def __init__(self, csv_path, processor):
-        self.csv_path = Path(csv_path)
-        self.data_root = self.csv_path.parent
+def load_split(csv_names):
+    frames = []
 
-        self.df = pd.read_csv(csv_path)
-        self.processor = processor
+    for name in csv_names:
+        csv_path = config.DATA_DIR / name
+        frame = pd.read_csv(csv_path, dtype={"text": str}, keep_default_na=False)
+        frame["audio_path"] = [str(csv_path.parent / path) for path in frame["audio_path"]]
+        frames.append(frame)
 
-    def __len__(self):
-        return len(self.df)
+    return Dataset.from_pandas(pd.concat(frames, ignore_index=True), preserve_index=False)
 
-    def __getitem__(self, index):
-        row = self.df.iloc[index]
 
-        audio_path = Path(row["audio_path"])
+if __name__ == "__main__":
+    for split, names in [("train", config.TRAIN_CSVS), ("validation", config.VALIDATION_CSVS), ("test", list(config.TEST_CSVS.values()))]:
+        data = load_split(names)
+        print(f"{split}: {len(data)} files, {sum(data['duration']) / 3600:.2f} hours")
 
-        if not audio_path.is_absolute():
-            audio_path = self.data_root / audio_path
-
-        audio, sample_rate = sf.read(audio_path)
-
-        if sample_rate != 16000:
-            raise ValueError(
-                f"{audio_path} is {sample_rate} Hz, expected 16000 Hz"
-            )
-
-        text = row["text"]
-
-        input_values = self.processor(
-            audio,
-            sampling_rate=16000
-        ).input_values[0]
-
-        labels = self.processor.tokenizer(
-            text
-        ).input_ids
-
-        return {
-            "input_values": input_values,
-            "labels": labels
-        }
+    print("Example:", load_split(config.TRAIN_CSVS)[0])

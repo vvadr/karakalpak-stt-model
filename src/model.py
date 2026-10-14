@@ -1,47 +1,28 @@
-import os
-
+from peft import LoraConfig, get_peft_model
 from transformers import Wav2Vec2ForCTC
-from peft import LoraConfig, get_peft_model, PeftModel
 
-from processor import processor
-
-
-MODEL_NAME = "facebook/wav2vec2-xls-r-300m"
-ADAPTER_DIR = "outputs/lora"
-
-tokenizer = processor.tokenizer
+import config
 
 
-def create_base_model():
-    model = Wav2Vec2ForCTC.from_pretrained(MODEL_NAME, vocab_size=len(tokenizer), pad_token_id=tokenizer.pad_token_id, ctc_loss_reduction="mean", ctc_zero_infinity=True, ignore_mismatched_sizes=True)
+def build_model(processor):
+    model = Wav2Vec2ForCTC.from_pretrained(
+        config.BASE_MODEL,
+        vocab_size=len(processor.tokenizer),
+        pad_token_id=processor.tokenizer.pad_token_id,
+        ctc_loss_reduction="mean",
+        ctc_zero_infinity=True,
+        layerdrop=0.0,
+    )
     model.freeze_feature_encoder()
+
+    lora_config = LoraConfig(
+        r=config.LORA_RANK,
+        lora_alpha=config.LORA_ALPHA,
+        lora_dropout=config.LORA_DROPOUT,
+        target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "intermediate_dense", "output_dense"],
+        modules_to_save=["lm_head"],
+    )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
+
     return model
-
-
-base_model = create_base_model()
-
-adapter_config_path = os.path.join(ADAPTER_DIR, "adapter_config.json")
-
-if os.path.exists(adapter_config_path):
-    print(f"Loading existing LoRA adapter from: {ADAPTER_DIR}")
-    model = PeftModel.from_pretrained(base_model, ADAPTER_DIR, is_trainable=True)
-
-else:
-    print("Creating new LoRA adapter")
-
-    lora_config = LoraConfig(r=8, lora_alpha=16, lora_dropout=0.05, target_modules=["q_proj", "v_proj"], modules_to_save=["lm_head"], bias="none")
-    model = get_peft_model(base_model, lora_config)
-
-
-print("\nTrainable parameters:")
-model.print_trainable_parameters()
-
-print("\nlm_head status:")
-
-for name, parameter in model.named_parameters():
-    if "lm_head" in name:
-        print(name, "trainable =", parameter.requires_grad)
-
-print("\nCTC configuration:")
-print("Tokenizer PAD ID:", tokenizer.pad_token_id)
-print("Model PAD ID:", base_model.config.pad_token_id)
