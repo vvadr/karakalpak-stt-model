@@ -10,13 +10,11 @@ from collator import DataCollatorCTC
 from dataset import load_split
 from evaluate_model import evaluate_tests
 from metrics import argmax_logits, make_compute_metrics
-from model import build_model
+from model import build_model, gpu_supports_bf16
 from processor import build_processor
 
 
 class CTCTrainer(Trainer):
-    # The new CTC head is saved through LoRA's modules_to_save. Without save_embedding_layers=False,
-    # PEFT sees the head's new size and also tries to save "embedding layers", which wav2vec2 doesn't have.
     def _save(self, output_dir=None, state_dict=None):
         output_dir = output_dir or self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -25,24 +23,8 @@ class CTCTrainer(Trainer):
         torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
 
 
-def save_history(log_history):
-    rows = [{"epoch": round(log["epoch"]), "step": log["step"], "loss": round(log["eval_loss"], 4), "wer": round(log["eval_wer"], 4), "cer": round(log["eval_cer"], 4)} for log in log_history if "eval_wer" in log]
-
-    with open(config.OUTPUT_DIR / "history.csv", "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["epoch", "step", "loss", "wer", "cer"])
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print("\nValidation WER/CER per epoch:")
-    for row in rows:
-        print(f"  epoch {row['epoch']:>2}: WER {row['wer']:.2%}  CER {row['cer']:.2%}  loss {row['loss']}")
-
-
-def main():
-    processor = build_processor()
-    model = build_model(processor)
-
-    args = TrainingArguments(
+def training_arguments():
+    return TrainingArguments(
         output_dir=str(config.CHECKPOINT_DIR),
         num_train_epochs=config.EPOCHS,
         per_device_train_batch_size=config.BATCH_SIZE,
@@ -50,7 +32,7 @@ def main():
         gradient_accumulation_steps=config.GRADIENT_ACCUMULATION,
         learning_rate=config.LEARNING_RATE,
         warmup_steps=config.WARMUP_RATIO,
-        bf16=torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+        bf16=gpu_supports_bf16(),
         gradient_checkpointing=config.GRADIENT_CHECKPOINTING,
         gradient_checkpointing_kwargs={"use_reentrant": False},
         train_sampling_strategy="group_by_length",
@@ -69,13 +51,57 @@ def main():
         seed=config.SEED,
     )
 
-    train_data = load_split(config.TRAIN_CSVS, config.TRAIN_FILES)
-    validation_data = load_split(config.VALIDATION_CSVS, config.EVAL_FILES)
+
+def latest_checkpoint():
+    if not config.CHECKPOINT_DIR.exists():
+        return None
+    return get_last_checkpoint(str(config.CHECKPOINT_DIR))
+
+
+def validation_history(log_history):
+    history = []
+    for log in log_history:
+        if "eval_wer" in log:
+            history.append({
+                "epoch": round(log["epoch"]),
+                "step": log["step"],
+                "loss": round(log["eval_loss"], 4),
+                "wer": round(log["eval_wer"], 4),
+                "cer": round(log["eval_cer"], 4),
+            })
+    return history
+
+
+def save_history(log_history):
+    history = validation_history(log_history)
+    with open(config.OUTPUT_DIR / "history.csv", "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["epoch", "step", "loss", "wer", "cer"])
+        writer.writeheader()
+        writer.writerows(history)
+
+    print("\nValidation WER/CER per epoch:")
+    for row in history:
+        print(f"  epoch {row['epoch']:>2}: WER {row['wer']:.2%}  CER {row['cer']:.2%}  loss {row['loss']}")
+
+
+def save_final_model(trainer, processor):
+    model = trainer.model.merge_and_unload()
+    model.save_pretrained(config.FINAL_MODEL_DIR)
+    processor.save_pretrained(config.FINAL_MODEL_DIR)
+    print("Best model saved to:", config.FINAL_MODEL_DIR)
+
+
+def main():
+    processor = build_processor()
+    model = build_model(processor)
+
+    train_data = load_split(config.TRAIN_CSVS, config.TRAIN_SUBSET_SIZE)
+    validation_data = load_split(config.VALIDATION_CSVS, config.EVAL_SUBSET_SIZE)
     print(f"Train: {len(train_data)} files ({sum(train_data['duration']) / 3600:.2f} h)   Validation: {len(validation_data)} files")
 
     trainer = CTCTrainer(
         model=model,
-        args=args,
+        args=training_arguments(),
         train_dataset=train_data,
         eval_dataset=validation_data,
         data_collator=DataCollatorCTC(processor),
@@ -84,17 +110,12 @@ def main():
         preprocess_logits_for_metrics=argmax_logits,
     )
 
-    last_checkpoint = get_last_checkpoint(str(config.CHECKPOINT_DIR)) if config.CHECKPOINT_DIR.exists() else None
-    print("Resuming from:", last_checkpoint or "nothing, starting from scratch")
-    trainer.train(resume_from_checkpoint=last_checkpoint)
+    checkpoint = latest_checkpoint()
+    print("Resuming from:", checkpoint or "nothing, starting from scratch")
+    trainer.train(resume_from_checkpoint=checkpoint)
 
     save_history(trainer.state.log_history)
-
-    model = trainer.model.merge_and_unload()
-    model.save_pretrained(config.FINAL_MODEL_DIR)
-    processor.save_pretrained(config.FINAL_MODEL_DIR)
-    print("Best model saved to:", config.FINAL_MODEL_DIR)
-
+    save_final_model(trainer, processor)
     evaluate_tests(config.FINAL_MODEL_DIR)
 
 

@@ -23,6 +23,7 @@ Rebuild with `python scripts/build_final_datasets.py --overwrite` (≈30 s) and 
 | `karakalpak-combined/` | original | HF part is the source of `final/hf`; Mendeley part unused |
 | `karakalpak-audio-dataset-hf/`, `karakalpak-mendeley/` | original | per-source exports (see `data/README.md`) |
 | `final/` | **derived, train on this** | `stt/`, `hf/` |
+| `benchmarks/` (server only) | derived | external test sets for `src/benchmark.py`; see below |
 
 Nothing under `datasets/` or `karakalpak-combined/` is edited by the build.
 
@@ -140,6 +141,32 @@ WER/CER for greedy, beam search and beam search + KenLM decoding. See
 (35 tokens). Validation (`stt/validation.csv`) picks the best epoch; the two test sets are scored
 once at the end, separately.
 
+## External test sets (benchmarks)
+
+Other projects on the server hold Karakalpak test data. `scripts/prepare_benchmarks.py` (run on the
+server) turns the usable ones into CSVs under `data/benchmarks/`, and `src/benchmark.py` scores the
+model on them. Overlap was checked against our data first: a test set only counts as new when its
+sentences are not in our training text.
+
+| Server folder | Clips | New to our model? | Used as |
+| --- | ---: | --- | --- |
+| `~/asr_project/data/karakalpak_speech_corpus` test / validation | 1,074 / 1,074 | yes: 3–4 sentences in our data, median 7% shared 4-word phrases | `benchmarks/asr_corpus/{test,validation}.csv` |
+| `~/whisper_kaa/DATASET_trimmed/test` | 1,018 | yes: 3 sentences in our data | `benchmarks/whisper_test/test.csv`, with the colleague's Whisper predictions for comparison |
+| `~/Benchmark/karakalpak_hf_dataset` | 2,548 | no: these are our HF clips (2,040 train, 508 test) | its 508 test clips compare our model with the model saved there |
+| `asr_project` / `whisper_kaa` train sets | ≈ 19,500 | no: 36% identical to our STT train | not used |
+
+`prepare_benchmarks.py` cleans the references like our training text (lowercase, no punctuation,
+`é → e`, `ü → ú`, `ö → ó`, then `clean_text`). The asr_corpus `text` column writes numbers as words
+but turns every hyphen between two words into **"alıw"** ("minus"): `hayal-qızlardıń` became
+`hayal alıw qızlardıń` in 40% of the references. `restore_hyphens_written_as_minus()` undoes this
+with the corpus's `raw_text` (831 rows repaired), and 52 rows where a false "alıw" may remain are
+excluded, plus 1 row containing `m²`. Every decision is in `<split>_metadata.csv`.
+
+Results (WER / CER, beam search + KenLM, α 0.7 and β 2.0 from our validation set): asr_corpus test
+21.32% / 6.25% (1,047 clips), validation 20.27% / 5.88% (1,048), whisper_kaa test 20.64% / 6.04%
+(1,018), where the fine-tuned Whisper-small scores 20.16% / 7.11%. Greedy and beam results are in
+`docs/wav2vec2_training.md`.
+
 ## Caveats
 
 - **Long clips.** 198 STT clips exceed 30 s (161 train). This is fine for wav2vec2 CTC
@@ -149,6 +176,7 @@ once at the end, separately.
   0.1% of samples. HF has neither problem. Speaking rate is plausible throughout:
   4.8–23.9 characters/s in STT and 5.7–26.0 in HF.
 - **Joined hyphenated words.** Upstream normalization dropped hyphens without a space in STT
-  (`sociallıqekonomikalıq`), while HF splits them (`az aq`). This costs some WER; it was left
-  as-is.
+  (`sociallıqekonomikalıq`), while HF splits them (`az aq`). The model learned the joined form:
+  on the asr_corpus test, whose references split these words, it costs about 1.5 WER points
+  (21.3% instead of 19.9%). Splitting them in the training text would fix this.
 - **No speaker IDs** in either source, so splits are not speaker-disjoint.

@@ -4,13 +4,13 @@
 
 ## Situation
 
-The training data is built on the Mac. Training runs on the server, which Claude cannot reach,
-so every server command below is meant to be copied into the VS Code SSH terminal.
+The training data is built on the Mac. Training runs on the server. Since 2026-10-14 the Mac's SSH
+key is installed on the server, so Claude Code can also run these commands itself.
 
 | Machine | Address | Repo path | Role |
 | --- | --- | --- | --- |
 | Mac (local) | – | `~/Documents/IT/repos/AI & ML` (branch `model-train-2`) | Claude Code runs here; builds `data/final` |
-| Server `spark-f886` | `intern@192.168.1.88` (password login) | `/home/intern/AI & ML` (`.venv`, Python 3.12.3) | GPU training |
+| Server `spark-f886` | `intern@192.168.1.88` (SSH key) | `/home/intern/AI & ML` (`.venv`, Python 3.12.3) | GPU training |
 
 How the data moved:
 
@@ -18,9 +18,8 @@ How the data moved:
 2. On the Mac, `scripts/build_final_datasets.py` turned it plus the HF part of
    `data/karakalpak-combined` into `data/final`. That is 22,127 files: 22,108 WAVs plus 19 CSV,
    JSON and README files. `scripts/validate_final_datasets.py` passed all 37 checks.
-3. An earlier version of `data/final` was being copied to the server with `scp` and stopped
-   partway. That version also included `mendeley/` and used `ś`/`ć` spelling. The server copy
-   is therefore incomplete and out of date, and Step 1 overwrites it.
+3. `data/final` was copied to the server with `rsync -c` (Step 1) and checked there (Step 2).
+4. The model was trained on the server (2 h 29 min), then decoded and benchmarked (Steps 3 and 4).
 
 Run each block from the repo root on the machine its heading names. Every block is safe to run
 again.
@@ -161,7 +160,7 @@ Training, the KenLM language model and the decoders are in `src/`, explained fil
 `docs/wav2vec2_training.md`. The new code reads `data/final/stt` and `data/final/hf` directly; no
 manifests or edits to `src/` are needed. Follow that doc's "Run it on the server" section:
 
-1. Mac: copy `src/` and the doc to the server with `rsync`.
+1. Mac: copy `src/`, the three scripts and `docs/` to the server with `rsync`.
 2. Server: install `pyctcdecode` and `kenlm`, and make sure KenLM's `lmplz` exists.
 3. Server: `python src/vocab.py`, then `python src/train.py` (prints validation WER/CER per epoch
    and test WER/CER at the end).
@@ -169,6 +168,20 @@ manifests or edits to `src/` are needed. Follow that doc's "Run it on the server
    + KenLM).
 
 All results go to `outputs/wav2vec2-lora-kaa/` on the server.
+
+## Step 4 (server): test on other data
+
+```bash
+cd "/home/intern/AI & ML" && source .venv/bin/activate
+python scripts/prepare_benchmarks.py
+python src/benchmark.py data/benchmarks/asr_corpus/test.csv
+python src/benchmark.py data/benchmarks/asr_corpus/validation.csv
+python src/benchmark.py data/benchmarks/whisper_test/test.csv
+```
+
+`prepare_benchmarks.py` builds the test CSVs from `~/asr_project` and `~/whisper_kaa` (see
+`docs/datasets.md`); `benchmark.py` scores each with greedy, beam search and beam search + KenLM
+and writes `outputs/wav2vec2-lora-kaa/results/benchmarks/<name>.json`.
 
 ## Caveats
 

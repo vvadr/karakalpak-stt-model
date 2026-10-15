@@ -2,21 +2,30 @@ import csv
 import json
 import multiprocessing
 import sys
-from pathlib import Path
 
-import jiwer
 import torch
 from pyctcdecode import build_ctcdecoder
 from torch.utils.data import DataLoader
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 import config
 from collator import DataCollatorCTC
 from dataset import load_split
+from metrics import wer_and_cer
+from model import load_trained_model
+
+PYCTCDECODE_LABELS = {config.PAD_TOKEN: "", config.WORD_SEPARATOR: " ", config.UNKNOWN_TOKEN: "⁇"}
+
+
+def best_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def get_logits(model, processor, data):
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    device = best_device()
     model.to(device).eval()
     loader = DataLoader(data, batch_size=config.BATCH_SIZE, collate_fn=DataCollatorCTC(processor), num_workers=config.NUM_WORKERS)
     all_logits = []
@@ -24,8 +33,8 @@ def get_logits(model, processor, data):
     with torch.no_grad(), torch.autocast(device, dtype=torch.bfloat16, enabled=device == "cuda"):
         for batch in loader:
             logits = model(batch["input_values"].to(device), attention_mask=batch["attention_mask"].to(device)).logits
-            lengths = model._get_feat_extract_output_lengths(batch["attention_mask"].sum(-1))
-            all_logits += [row[:length].float().cpu().numpy() for row, length in zip(logits, lengths)]
+            frames = model._get_feat_extract_output_lengths(batch["attention_mask"].sum(-1))
+            all_logits += [row[:length].float().cpu().numpy() for row, length in zip(logits, frames)]
 
     return all_logits
 
@@ -33,7 +42,7 @@ def get_logits(model, processor, data):
 def ctc_labels(processor):
     labels = [""] * len(processor.tokenizer)
     for token, index in processor.tokenizer.get_vocab().items():
-        labels[index] = {"[PAD]": "", "|": " ", "[UNK]": "⁇"}.get(token, token)
+        labels[index] = PYCTCDECODE_LABELS.get(token, token)
     return labels
 
 
@@ -46,61 +55,75 @@ def beam(decoder, logits):
         return decoder.decode_batch(pool, logits, beam_width=config.BEAM_WIDTH)
 
 
+def decode_all_ways(processor, logits, beam_decoder, kenlm_decoder):
+    return {"greedy": greedy(processor, logits), "beam": beam(beam_decoder, logits), "kenlm": beam(kenlm_decoder, logits)}
+
+
 def score(references, predictions):
-    return {"wer": round(jiwer.wer(references, predictions), 4), "cer": round(jiwer.cer(references, predictions), 4)}
+    return {name: round(value, 4) for name, value in wer_and_cer(references, predictions).items()}
 
 
 def tune(decoder, logits, references):
     best = None
-    for alpha in config.ALPHAS:
-        for beta in config.BETAS:
+    for alpha in config.LM_WEIGHT_CANDIDATES:
+        for beta in config.WORD_BONUS_CANDIDATES:
             decoder.reset_params(alpha=alpha, beta=beta)
-            wer = jiwer.wer(references, beam(decoder, logits))
+            wer = wer_and_cer(references, beam(decoder, logits))["wer"]
             print(f"  alpha {alpha}  beta {beta}:  WER {wer:.2%}")
             if best is None or wer < best[0]:
                 best = (wer, alpha, beta)
 
-    decoder.reset_params(alpha=best[1], beta=best[2])
-    return best[1], best[2]
+    _, alpha, beta = best
+    decoder.reset_params(alpha=alpha, beta=beta)
+    return alpha, beta
 
 
-def main(model_dir=None):
-    model_dir = Path(model_dir or config.FINAL_MODEL_DIR)
-    processor = Wav2Vec2Processor.from_pretrained(model_dir)
-    model = Wav2Vec2ForCTC.from_pretrained(model_dir)
+def evaluation_sets():
+    sets = {"validation": load_split(config.VALIDATION_CSVS, config.EVAL_SUBSET_SIZE)}
+    for name, csv_name in config.TEST_CSVS.items():
+        sets[f"{name}_test"] = load_split([csv_name], config.EVAL_SUBSET_SIZE)
+    return sets
 
-    labels = ctc_labels(processor)
-    beam_decoder = build_ctcdecoder(labels)
-    kenlm_decoder = build_ctcdecoder(labels, kenlm_model_path=str(config.LM_PATH))
 
-    sets = {"validation": load_split(config.VALIDATION_CSVS, config.EVAL_FILES)}
-    sets.update({f"{name}_test": load_split([csv_name], config.EVAL_FILES) for name, csv_name in config.TEST_CSVS.items()})
-    logits = {name: get_logits(model, processor, data) for name, data in sets.items()}
-    references = {name: list(data["text"]) for name, data in sets.items()}
+def write_decoded(path, audio_paths, references, predictions):
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["audio_path", "reference", *predictions])
+        writer.writerows(zip(audio_paths, references, *predictions.values()))
 
-    print(f"Tuning KenLM alpha/beta on {min(config.TUNE_FILES, len(sets['validation']))} validation files")
-    alpha, beta = tune(kenlm_decoder, logits["validation"][:config.TUNE_FILES], references["validation"][:config.TUNE_FILES])
-    print(f"Best: alpha {alpha}  beta {beta}")
 
-    config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    results = {}
-
-    for name, data in sets.items():
-        predictions = {"greedy": greedy(processor, logits[name]), "beam": beam(beam_decoder, logits[name]), "kenlm": beam(kenlm_decoder, logits[name])}
-        results[name] = {decoder: score(references[name], texts) for decoder, texts in predictions.items()}
-
-        with open(config.RESULTS_DIR / f"decoded_{name}.csv", "w", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["audio_path", "reference", *predictions])
-            writer.writerows(zip(data["audio_path"], references[name], *predictions.values()))
-
-    summary = {"beam_width": config.BEAM_WIDTH, "lm": str(config.LM_PATH), "alpha": alpha, "beta": beta, "results": results}
-    (config.RESULTS_DIR / "decoder_results.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-
+def print_scores(results):
     print()
     for name, scores in results.items():
         for decoder, s in scores.items():
             print(f"{name:<12} {decoder:<7} WER {s['wer']:>7.2%}   CER {s['cer']:>7.2%}")
+
+
+def main(model_dir=None):
+    model, processor = load_trained_model(model_dir)
+    labels = ctc_labels(processor)
+    beam_decoder = build_ctcdecoder(labels)
+    kenlm_decoder = build_ctcdecoder(labels, kenlm_model_path=str(config.LM_PATH))
+
+    sets = evaluation_sets()
+    logits = {name: get_logits(model, processor, data) for name, data in sets.items()}
+    references = {name: list(data["text"]) for name, data in sets.items()}
+
+    tuning_files = min(config.TUNING_FILES, len(sets["validation"]))
+    print(f"Tuning KenLM alpha/beta on {tuning_files} validation files")
+    alpha, beta = tune(kenlm_decoder, logits["validation"][:tuning_files], references["validation"][:tuning_files])
+    print(f"Best: alpha {alpha}  beta {beta}")
+
+    config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    results = {}
+    for name, data in sets.items():
+        predictions = decode_all_ways(processor, logits[name], beam_decoder, kenlm_decoder)
+        results[name] = {decoder: score(references[name], texts) for decoder, texts in predictions.items()}
+        write_decoded(config.RESULTS_DIR / f"decoded_{name}.csv", data["audio_path"], references[name], predictions)
+
+    summary = {"beam_width": config.BEAM_WIDTH, "lm": str(config.LM_PATH), "alpha": alpha, "beta": beta, "results": results}
+    (config.RESULTS_DIR / "decoder_results.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print_scores(results)
     print("\nSaved to:", config.RESULTS_DIR)
 
 
