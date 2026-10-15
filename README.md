@@ -102,3 +102,35 @@ WAV loading. The training and preserved decoded audio are valid WAV files.
 
 Local datasets remain ignored by Git. See
 [docs/dataset_review.md](docs/dataset_review.md) for the code review and validation.
+
+## Whisper fine-tuning
+
+Start with [notebooks/whisper/setup.ipynb](notebooks/whisper/setup.ipynb).
+The code uses plain settings, tables, small functions, and loops. The runner
+executes all stages in one Python session, checks the data/model, trains every
+Whisper-small parameter for three epochs, and evaluates the selected checkpoint.
+
+```bash
+uv run ipython -c "get_ipython().run_line_magic('run', 'notebooks/whisper/setup.ipynb'); run_notebooks(train=True)"
+```
+
+Choose the **Whisper (project .venv)** kernel. Use `run_notebooks(train=False)`
+for checks without training; training is disabled by default. Each stage imports
+its libraries and loads missing prerequisite steps. Read the numbered
+notebooks to follow the steps, and see [docs/whisper_training.md](docs/whisper_training.md)
+for each file, beginner explanations, architecture, settings, training stages,
+and progress logs. Source datasets stay read-only; model outputs remain local
+under the ignored `checkpoints/` folder. Change `RUN_NAME` before a new experiment.
+
+The completed `whisper-small-kaa-full-run02` trained on Apple MPS for three
+epochs. On the 370-recording validation split it reached **0.4586 validation
+loss, 32.45% WER, and 7.31% CER**. The separate 927-recording test split has not
+been scored. The local `checkpoints/` folder contains run history, split
+manifests, validation predictions and metrics, and the `best/` inference model.
+Its contents are ignored by Git. To share the model, package the complete
+`best/` folder, including its weights, configuration, tokenizer, and processor.
+
+Open [07_progress.ipynb](notebooks/whisper/07_progress.ipynb) in another tab to
+visualize the current stage, progress bar, and loss curves. Choose the same run
+name and rerun its cells to refresh. The first full run was stopped before its
+first checkpoint; `whisper-small-kaa-full-run02` completed all three epochs.
