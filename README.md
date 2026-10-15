@@ -1,136 +1,132 @@
-# Karakalpak ASR datasets
+# Karakalpak speech recognition
 
-The two source datasets stay separate. A third folder combines their **cleaned**
-recordings for model training. All prepared audio is mono 16 kHz PCM16 WAV.
+Speech-to-text for Karakalpak. The main model is **wav2vec2 XLS-R 300M fine-tuned with LoRA**,
+decoded with beam search and a **KenLM 4-gram language model**. On our two test sets it reaches
+**18.61% WER / 5.93% CER** (STT, news speech) and **18.30% WER / 3.08% CER** (HF, literary speech).
 
-| Folder under `data/` | Train | Test | Total |
-| --- | ---: | ---: | ---: |
-| `karakalpak-audio-dataset-hf` | 2,090 | 523 | 2,613 |
-| `karakalpak-mendeley` | 1,618 | 404 | 2,022 |
-| `karakalpak-combined` | 3,708 | 927 | 4,635 |
+## Results
+
+Model: `facebook/wav2vec2-xls-r-300m` + LoRA (rank 32), trained on 2026-10-14 on the server
+(NVIDIA GB10, 4 epochs, 2 h 31 min) with 17,685 clips (77.45 h). WER / CER:
+
+| Test set | Clips | Greedy | Beam search | Beam search + KenLM |
+| --- | ---: | --- | --- | --- |
+| STT test | 1,950 | 38.37% / 8.90% | 37.75% / 8.73% | **18.61% / 5.93%** |
+| HF test | 523 | 22.32% / 3.65% | 21.68% / 3.53% | **18.30% / 3.08%** |
+| asr_corpus test (outside data) | 1,047 | 39.59% / 9.06% | 38.71% / 8.88% | **21.32% / 6.25%** |
+| asr_corpus validation (outside data) | 1,048 | 38.16% / 8.69% | 37.34% / 8.51% | **20.27% / 5.88%** |
+| whisper_test (outside data) | 1,018 | 38.56% / 8.80% | 37.65% / 8.60% | **20.64% / 6.04%** |
+
+- **Greedy** takes the most likely letter at each step. **Beam search** keeps the 100 best
+  candidates. **+ KenLM** adds a word-level language model (weights α 0.7, β 2.0, tuned on 500
+  validation clips).
+- The outside test sets come from other projects on the server and were not used for training
+  (only 3–4 of their sentences also appear in our training text).
+  `whisper_test` is the test split of the Whisper project; on it, that project's fine-tuned
+  Whisper-small scores 20.16% / 7.11%.
+- Earlier experiments used different data and are not comparable: an older LoRA script on
+  `karakalpak-combined` (55.44% WER on its 927 test clips) and Whisper-small on the Mac (32.45% WER /
+  7.31% CER on 370 validation clips, see `docs/whisper_training.md`).
+
+## Data
+
+Training uses `data/final/`, two datasets kept apart because their domain and clip length differ:
+
+| Dataset | Train | Validation | Test | Hours | Speech |
+| --- | ---: | ---: | ---: | ---: | --- |
+| STT (`data/final/stt`) | 15,595 | 1,950 | 1,950 | 93.13 | news, 5.9–38.5 s clips |
+| HF (`data/final/hf`) | 2,090 | – | 523 | 3.48 | literary, 2.0–11.6 s clips |
+
+All audio is mono 16 kHz WAV. Transcripts use only the 2016 Karakalpak Latin alphabet. Mendeley
+recordings are not used (they write `ś`/`ć` and often follow Kazakh spelling). The audio is not in
+Git (`data/` is ignored): `scripts/build_final_datasets.py` builds `data/final` from the source
+datasets and `scripts/validate_final_datasets.py` checks it (37 checks). Details, every transcript
+fix and the outside test sets are in `docs/datasets.md`.
+
+## Setup
+
+Python 3.12. From the repo root:
+
+```bash
+uv sync --no-install-project
+source .venv/bin/activate
+uv pip install peft kenlm
+uv pip install --no-deps pyctcdecode pygtrie
+```
+
+- `--no-install-project` is needed because the project's own package (`src/ai_ml`) is only an
+  empty template and does not build.
+- `pyctcdecode` asks for `numpy<2` but works with numpy 2; `--no-deps` keeps numpy untouched.
+- Without uv, use the same package names with `pip install` inside a virtual environment.
+
+`src/lm.py` needs KenLM's `lmplz` program, built from the `kenlm` submodule (needs `cmake`, Boost
+and zlib, see `docs/wav2vec2_training.md`):
+
+```bash
+git submodule update --init kenlm
+mkdir -p kenlm/build && cd kenlm/build && cmake .. && make -j 8 && cd ../..
+```
+
+## Run the pipeline
+
+```bash
+mkdir -p outputs/raw_logs
+python src/vocab.py      # 35-token character vocabulary
+nohup python src/train.py > outputs/raw_logs/train_$(date +%F).log 2>&1 &   # about 2.5 h on the server
+python src/lm.py         # 4-gram KenLM from the train transcripts
+python src/decode.py     # after training: greedy vs beam search vs beam search + KenLM, tunes α and β
+python scripts/prepare_benchmarks.py                          # server only: builds data/benchmarks/
+python src/benchmark.py data/benchmarks/asr_corpus/test.csv   # or any other test CSV
+```
+
+Everything is written to `outputs/wav2vec2-lora-kaa/`. All settings are in `src/config.py`.
+`LOCAL=1` switches to a small preset (3,000 clips, 5 epochs) that fits on a Mac.
+`docs/wav2vec2_training.md` explains every file and setting.
+
+## Logs
+
+`train.log`, `decode.log` and `benchmark.log` are cleaned logs of the 2026-10-14 server run. Each
+starts with a title line (model | run | status), then the model, the data, the settings and the
+results as tables. The raw logs stay in `outputs/raw_logs/` on the machine that made them. A new run
+writes its raw output there too, so these files are not overwritten.
+
+`train.log` reports 38.43% WER on STT test, a little worse than the 38.37% above: its quick
+end-of-training check also reads the padding after each clip, which added stray letters at the end
+of 125 clips. `decode.log` cuts the padding off, so the table above uses its numbers.
+
+## Repository layout
 
 ```text
-data/
-  karakalpak-audio-dataset-hf/
-    train.csv, test.csv, metadata.csv, split_summary.json
-    train/audio/
-    test/audio/
-    sources/                  # untouched source WAVs, 16 kHz copies, publisher CSVs
-    provenance/               # prior selection and normalization records
-  karakalpak-mendeley/
-    train.csv, test.csv, metadata.csv, split_summary.json
-    train/audio/, train/audio_original/
-    test/audio/, test/audio_original/
-    sources/DATASET_v1.7z      # verified recovery archive with correct text mapping
-    provenance/               # source mapping, measurements, abbreviation decisions
-  karakalpak-combined/
-    train.csv, test.csv, metadata.csv, split_summary.json
-    train/audio/
-    test/audio/
-    provenance/metadata.csv   # detailed source records and checksums
-  organization/               # before checksums and cleanup report
+src/                      the wav2vec2 + LoRA pipeline (config, data, model, training, LM, decoding)
+scripts/                  build_final_datasets.py, validate_final_datasets.py, prepare_benchmarks.py,
+                          plus older tools for the source datasets
+notebooks/whisper/        the Whisper-small workflow (start with setup.ipynb)
+notebooks/preprocessingAndFeatureExtraction/   first-week data notebooks
+docs/                     guides, listed below
+kenlm/                    KenLM source (Git submodule)
+train.log, decode.log, benchmark.log           cleaned logs of the server run
+data/, outputs/, checkpoints/                  local only, ignored by Git
 ```
 
-The training CSVs contain only three columns:
+Not used by the current pipeline: `kaa.arpa`, `lm_text.txt` and `vocab.json` in the root come from
+the older experiment on `karakalpak-combined`, and `main.py`, `train.py`, `evaluate.py`,
+`infer.py`, `configs/` and `src/ai_ml/` are empty template files.
 
-| Column | Meaning |
+## Docs
+
+| File | What it covers |
 | --- | --- |
-| `audio_path` | WAV path relative to the dataset folder |
-| `text` | Prepared Latin transcript |
-| `duration` | Audio duration in seconds |
+| [docs/wav2vec2_training.md](docs/wav2vec2_training.md) | the `src/` pipeline file by file, settings, results, logs, how to run |
+| [docs/datasets.md](docs/datasets.md) | `data/final`, the alphabet, transcript fixes, the outside test sets |
+| [docs/remote_training_runbook.md](docs/remote_training_runbook.md) | Mac and server workflow, copying data, pushing to GitHub |
+| [docs/whisper_training.md](docs/whisper_training.md) | the Whisper-small notebooks and their results |
+| [docs/source_datasets.md](docs/source_datasets.md) | the original HF, Mendeley and combined exports (the old README) |
+| [docs/notebook_workflow.md](docs/notebook_workflow.md), [docs/dataset_review.md](docs/dataset_review.md) | first-week notebooks and dataset review |
+| [docs/pipeline/](docs/pipeline/) (PDFs) | a 4-page pipeline map and a 35-page step-by-step walkthrough |
 
-`metadata.csv` combines both splits and adds only `split`. Detailed source
-filenames, original transcripts, Cyrillic text, quality measurements, and audio
-checksums are kept in `provenance/metadata.csv` for auditing.
+## Limitations
 
-Start with [notebooks/preprocessingAndFeatureExtraction/dataset_splits.ipynb](notebooks/preprocessingAndFeatureExtraction/dataset_splits.ipynb) to load
-any folder as a Hugging Face `DatasetDict` and listen to a matched training row.
-The Monday and Tuesday notebooks analyze the preserved HF source snapshot;
-Wednesday reviews its cleaning rule; Thursday explores combined training text.
-All eight notebooks live under `notebooks/preprocessingAndFeatureExtraction/`.
-See [docs/notebook_workflow.md](docs/notebook_workflow.md) for each notebook,
-setup, execution order, dataset paths, and limitations.
-
-The combined recordings total **8 hours, 33 minutes, 3 seconds**:
-6 hours, 50 minutes, 15 seconds in train and 1 hour, 42 minutes, 48 seconds in test.
-
-## Splits and cleaning
-
-The split is 80% train / 20% test, rounded per source, with seed 42. Assignments
-are identical in the separate and combined datasets. Exact audio duplicates
-and normalized transcript duplicates are grouped before splitting. The 46
-retained recordings from the original HF test set remain in test. Speaker IDs
-were not supplied, so these splits cannot guarantee unseen speakers.
-
-The existing cleaning rule keeps recordings with duration >= 2 seconds **and**
-at least four words: 2,613 of 3,032 HF recordings and all 2,022 Mendeley
-recordings. All 3,032 original HF pairs are retained under `sources/`.
-No exact duplicate audio was found among the 4,635 prepared recordings.
-
-Mendeley text uses the authoritative v1 filename mapping and seven previously
-reviewed abbreviation expansions. The v2 CSV uses mismatched filenames and is
-excluded from training. Its archive and extracted audio were removed after
-archive integrity, checksums, and all audio CRCs matched the retained v1 archive.
-Duplicate intermediate audio and notebook autosaves were also removed.
-The net dataset size decreased by approximately **2.6 GB** after creating the
-independent combined audio copies.
-
-## Maintenance
-
-```bash
-.venv/bin/python scripts/organize_datasets.py --audit
-.venv/bin/python scripts/mendeley_pipeline.py --stage audit
-```
-
-To simplify CSVs from an earlier organized export, run
-`.venv/bin/python scripts/organize_datasets.py --simplify-csv`.
-
-The organizer imports the previous local `cleaned/` layout on its first run;
-`--cleanup` removes verified redundant files after publication and audit. An
-already organized dataset is audited on subsequent runs, preserving assignments.
-It refuses a different seed or test ratio when outputs already exist.
-
-To recover original Mendeley source containers when needed:
-
-```bash
-.venv/bin/python scripts/mendeley_pipeline.py --stage recover
-```
-
-Recovery writes `sources/recovered/` without changing training exports. Eleven
-source files have `.wav` names but contain MP4/AAC and require decoding before
-WAV loading. The training and preserved decoded audio are valid WAV files.
-
-Local datasets remain ignored by Git. See
-[docs/dataset_review.md](docs/dataset_review.md) for the code review and validation.
-
-## Whisper fine-tuning
-
-Start with [notebooks/whisper/setup.ipynb](notebooks/whisper/setup.ipynb).
-The code uses plain settings, tables, small functions, and loops. The runner
-executes all stages in one Python session, checks the data/model, trains every
-Whisper-small parameter for three epochs, and evaluates the selected checkpoint.
-
-```bash
-uv run ipython -c "get_ipython().run_line_magic('run', 'notebooks/whisper/setup.ipynb'); run_notebooks(train=True)"
-```
-
-Choose the **Whisper (project .venv)** kernel. Use `run_notebooks(train=False)`
-for checks without training; training is disabled by default. Each stage imports
-its libraries and loads missing prerequisite steps. Read the numbered
-notebooks to follow the steps, and see [docs/whisper_training.md](docs/whisper_training.md)
-for each file, beginner explanations, architecture, settings, training stages,
-and progress logs. Source datasets stay read-only; model outputs remain local
-under the ignored `checkpoints/` folder. Change `RUN_NAME` before a new experiment.
-
-The completed `whisper-small-kaa-full-run02` trained on Apple MPS for three
-epochs. On the 370-recording validation split it reached **0.4586 validation
-loss, 32.45% WER, and 7.31% CER**. The separate 927-recording test split has not
-been scored. The local `checkpoints/` folder contains run history, split
-manifests, validation predictions and metrics, and the `best/` inference model.
-Its contents are ignored by Git. To share the model, package the complete
-`best/` folder, including its weights, configuration, tokenizer, and processor.
-
-Open [07_progress.ipynb](notebooks/whisper/07_progress.ipynb) in another tab to
-visualize the current stage, progress bar, and loss curves. Choose the same run
-name and rerun its cells to refresh. The first full run was stopped before its
-first checkpoint; `whisper-small-kaa-full-run02` completed all three epochs.
+- No speaker IDs exist, so a speaker can appear in both train and test.
+- Validation is STT only (HF has no validation split), so the best epoch is chosen on news speech.
+- Hyphenated words are joined in the STT text (`sociallıqekonomikalıq`); this costs about 1.5 WER
+  points on asr_corpus, whose references split them.

@@ -1,6 +1,6 @@
 # Karakalpak ASR: remote training runbook
 
-2026-10-14
+2026-10-15
 
 ## Situation
 
@@ -9,8 +9,11 @@ key is installed on the server, so Claude Code can also run these commands itsel
 
 | Machine | Address | Repo path | Role |
 | --- | --- | --- | --- |
-| Mac (local) | – | `~/Documents/IT/repos/AI & ML` (branch `model-train-2`) | Claude Code runs here; builds `data/final` |
-| Server `spark-f886` | `intern@192.168.1.88` (SSH key) | `/home/intern/AI & ML` (`.venv`, Python 3.12.3) | GPU training |
+| Mac (local) | – | `~/Documents/IT/repos/AI & ML` (branch `model-train-2`, older local work) | Claude Code runs here; builds `data/final`; pushes to GitHub |
+| Server `spark-f886` | `intern@192.168.1.88` (SSH key) | `/home/intern/AI & ML` (`.venv`, Python 3.12.3, branch `lora-training-clean`) | GPU training; the up-to-date code |
+
+The server's code is on GitHub in `main` (and `lora-training`). The server's own SSH key is not
+on GitHub, so its commits reach GitHub through the Mac (Step 5).
 
 How the data moved:
 
@@ -19,7 +22,8 @@ How the data moved:
    `data/karakalpak-combined` into `data/final`. That is 22,127 files: 22,108 WAVs plus 19 CSV,
    JSON and README files. `scripts/validate_final_datasets.py` passed all 37 checks.
 3. `data/final` was copied to the server with `rsync -c` (Step 1) and checked there (Step 2).
-4. The model was trained on the server (2 h 29 min), then decoded and benchmarked (Steps 3 and 4).
+4. The model was trained on the server (2 h 31 min), then decoded and benchmarked (Steps 3 and 4).
+   The cleaned logs of that run are `train.log`, `decode.log` and `benchmark.log` in the repo root.
 
 Run each block from the repo root on the machine its heading names. Every block is safe to run
 again.
@@ -182,6 +186,44 @@ python src/benchmark.py data/benchmarks/whisper_test/test.csv
 `prepare_benchmarks.py` builds the test CSVs from `~/asr_project` and `~/whisper_kaa` (see
 `docs/datasets.md`); `benchmark.py` scores each with greedy, beam search and beam search + KenLM
 and writes `outputs/wav2vec2-lora-kaa/results/benchmarks/<name>.json`.
+
+## Logs
+
+`train.log`, `decode.log` and `benchmark.log` in the repo root are cleaned summaries of the
+2026-10-14 run: model, data, settings and results as tables, without progress bars or warnings.
+The original raw logs are in `outputs/raw_logs/` on the server (ignored by Git). For a new run,
+write the raw output to `outputs/raw_logs/<name>_<date>.log` as shown in
+`docs/wav2vec2_training.md`, so the cleaned logs are not overwritten. That doc also lists the older
+Mac logs and which model and data each one belongs to.
+
+## Step 5 (Mac): put the server's commits on GitHub
+
+Commit on the server as usual. The server cannot push (its key is not on GitHub), so the Mac
+fetches the server's branch and pushes it:
+
+```bash
+cd ~/Documents/IT/repos/"AI & ML"
+git fetch "intern@192.168.1.88:/home/intern/AI & ML" lora-training-clean
+git log --oneline -3 FETCH_HEAD
+git push origin FETCH_HEAD:main
+```
+
+The push is refused if GitHub's `main` has commits the server doesn't have (for example a PR
+merged on GitHub). Don't force it: send those commits to the server, merge them there, then run
+the block above again.
+
+```bash
+# Mac
+git fetch origin
+git push "intern@192.168.1.88:/home/intern/AI & ML" origin/main:refs/remotes/origin/main
+# server
+git merge origin/main
+```
+
+To push from the server directly, add the
+server's public key (`cat ~/.ssh/id_ed25519.pub` on the server) to the GitHub repo under
+Settings → Deploy keys, with "Allow write access" ticked; then `git push origin HEAD:main` works
+on the server.
 
 ## Caveats
 

@@ -125,7 +125,7 @@ are expected. `build_model` prints `trainable params: 14,191,651 || all params: 
 
 | Function | What it does |
 | --- | --- |
-| `CTCTrainer._save(...)` | saves a checkpoint: LoRA weights + CTC head, processor, training arguments. `save_embedding_layers=False` stops PEFT from trying to save embedding layers wav2vec2 doesn't have (that crashed the first runs) |
+| `TrainingLoop._save(...)` | saves a checkpoint: LoRA weights + CTC head, processor, training arguments. `save_embedding_layers=False` stops PEFT from trying to save embedding layers wav2vec2 doesn't have (that crashed the first runs) |
 | `training_arguments()` | epochs, batch, learning rate, bf16, grouping by length, evaluate and save every epoch, keep the best by WER |
 | `latest_checkpoint()` | the newest checkpoint, if any, so an interrupted run resumes |
 | `validation_history(log_history)` | the validation loss/WER/CER of every epoch from the trainer's log |
@@ -144,6 +144,11 @@ are expected. `build_model` prints `trainable params: 14,191,651 || all params: 
 
 It runs automatically at the end of training; `python src/evaluate_model.py [path/to/final_model]`
 runs it by hand.
+
+**Known issue:** this quick check also decodes the padding frames after each clip, which can add
+stray letters at the end (`esaplanadıdı` instead of `esaplanadı`). In the server run that happened
+in 125 of the 1,950 STT test clips, so `train.log` says 38.43% WER where `decode.py`, which cuts
+the padding off, says 38.37%. HF test was not affected. Use the `decode.py` numbers.
 
 ### 10. `lm.py`: the KenLM language model
 
@@ -185,6 +190,9 @@ sets found on the server are prepared by `scripts/prepare_benchmarks.py`; see `d
 
 ## Results (server run, 2026-10-14)
 
+Training took 9,059 s (2 h 31 min) on the server's GB10 GPU. Every number below is also in the
+cleaned logs `train.log`, `decode.log` and `benchmark.log` (see "Logs" below).
+
 Validation after each epoch, greedy decoding (1,950 STT clips):
 
 | Epoch | WER | CER |
@@ -218,8 +226,9 @@ to `outputs/wav2vec2-lora-kaa-local/`; the server never sets `LOCAL`.
 ```bash
 cd ~/Documents/IT/repos/"AI & ML"
 export LOCAL=1 HF_HUB_CACHE="$PWD/checkpoints/hf-cache/hub"
+mkdir -p outputs/raw_logs
 .venv/bin/python src/vocab.py
-nohup .venv/bin/python src/train.py > outputs/wav2vec2-lora-kaa-local/train.log 2>&1 &
+nohup .venv/bin/python src/train.py > outputs/raw_logs/train_local_$(date +%F).log 2>&1 &
 ```
 
 The local run reached HF test 74.57% / 15.82% and STT test 90.29% / 29.56% (300 clips each): it
@@ -257,30 +266,60 @@ mkdir -p kenlm/build && cd kenlm/build && cmake .. && make -j 8
 
 **On the server, run the pipeline.**
 
+The raw output of a run goes to `outputs/raw_logs/` with the date in its name, so it never
+overwrites the cleaned logs in the repo root:
+
 ```bash
 cd "/home/intern/AI & ML" && source .venv/bin/activate
+mkdir -p outputs/raw_logs
 python src/vocab.py
-nohup python src/train.py > train.log 2>&1 &
-tail -f train.log
+nohup python src/train.py > outputs/raw_logs/train_$(date +%F).log 2>&1 &
+tail -f outputs/raw_logs/train_$(date +%F).log
 ```
 
 After training finishes (the log ends with the test WER/CER):
 
 ```bash
 LD_LIBRARY_PATH=/home/intern/miniforge3/envs/stt/lib python src/lm.py
-python src/decode.py 2>&1 | tee decode.log
+python src/decode.py 2>&1 | tee outputs/raw_logs/decode_$(date +%F).log
 python scripts/prepare_benchmarks.py
-python src/benchmark.py data/benchmarks/asr_corpus/test.csv
+python src/benchmark.py data/benchmarks/asr_corpus/test.csv 2>&1 | tee -a outputs/raw_logs/benchmark_$(date +%F).log
 ```
+
+## Logs
+
+The repo root holds **cleaned** logs of the 2026-10-14 server run. Each one starts with a title
+line (model | run | status), then the model, the data, the run settings and the results as
+tables. Progress bars, warnings and model-loading tables are removed; every number was copied from
+the raw log and checked against the results files. The raw logs are kept in `outputs/raw_logs/`
+(ignored by Git) on the machine that made them.
+
+| Log | Model | Data | Main result (WER) |
+| --- | --- | --- | --- |
+| `train.log` | wav2vec2 + LoRA (this pipeline) | STT + HF train, 17,685 clips | STT test 38.43%, HF test 22.32% (greedy, see the known issue above) |
+| `decode.log` | the same model + KenLM | STT validation, STT test, HF test | with KenLM: STT test 18.61%, HF test 18.30% |
+| `benchmark.log` | the same model + KenLM | asr_corpus test and validation, whisper_test | with KenLM: 21.32%, 20.27%, 20.64% |
+
+Older runs on the Mac have cleaned logs too (not in Git, the folders are ignored):
+
+| Mac log | Model | Data | Result |
+| --- | --- | --- | --- |
+| `train.log` (Mac copy) | this pipeline | all training data | crashed: Mac GPU out of memory |
+| `outputs/wav2vec2-lora-kaa-local/train_crash1.log`, `train.log` | this pipeline, `LOCAL=1` | 3,000-clip subset | first attempt crashed; the second finished with STT test 90.29% (tiny subset) |
+| `checkpoints/wav2vec2-xlsr300m-lora-kaa-*.log` | older LoRA script (rank 16) | `karakalpak-combined`, includes Mendeley | test 55.44%; run02 repeats run01 exactly |
+| `checkpoints/whisper-small-kaa-full-run01.log` | Whisper-small | `karakalpak-combined` | stopped early, no results |
+
+`whisper_test` is a dataset name (the test split of the Whisper project), not the Whisper model.
 
 ## Where to see WER and CER
 
 | When | Where |
 | --- | --- |
-| Every epoch, during training | `train.log` lines with `eval_wer` and `eval_cer` |
+| Every epoch, during training | the raw log in `outputs/raw_logs/`, lines with `eval_wer` and `eval_cer` |
 | After training | `outputs/wav2vec2-lora-kaa/history.csv` and `results/test_results.json` |
 | After `decode.py` | `results/decoder_results.json` (all decoders, α, β) and `results/decoded_*.csv` |
 | After `benchmark.py` | `results/benchmarks/<name>.json` and `<name>.csv` |
+| Summary of the 2026-10-14 run | the cleaned `train.log`, `decode.log`, `benchmark.log` in the repo root |
 
 ## What was tested
 
@@ -288,7 +327,8 @@ The pipeline ran end to end on the server: training, test scoring, KenLM, decodi
 benchmarks above. On 2026-10-14 the code was then simplified: comments removed, names made
 self-explanatory, long lines split into small functions, and a few settings renamed
 (`TRAIN_FILES` → `TRAIN_SUBSET_SIZE`, `ALPHAS`/`BETAS` → `LM_WEIGHT_CANDIDATES`/`WORD_BONUS_CANDIDATES`,
-`TUNE_FILES` → `TUNING_FILES`). The logic is unchanged, but the simplified version has only been
+`TUNE_FILES` → `TUNING_FILES`). On 2026-10-15 the trainer class in `train.py` was renamed
+`CTCTrainer` → `TrainingLoop`. The logic is unchanged, but the simplified version has only been
 checked statically (syntax, pyflakes, every import and `config` setting exists), **not run yet**.
 Paste any error from its first run into Claude Code.
 

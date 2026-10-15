@@ -1,31 +1,38 @@
-Loading weights:   0%|          | 0/424 [00:00<?, ?it/s]Loading weights: 100%|██████████| 424/424 [00:00<00:00, 17382.66it/s]
-Loading the LM will be faster if you build a binary file.
-Reading /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/lm/kaa_4gram.arpa
-----5---10---15---20---25---30---35---40---45---50---55---60---65---70---75---80---85---90---95--100
-****************************************************************************************************
-Tuning KenLM alpha/beta on 500 validation files
-  alpha 0.3  beta 0.0:  WER 20.38%
-  alpha 0.3  beta 1.0:  WER 20.96%
-  alpha 0.3  beta 2.0:  WER 21.88%
-  alpha 0.5  beta 0.0:  WER 19.63%
-  alpha 0.5  beta 1.0:  WER 19.73%
-  alpha 0.5  beta 2.0:  WER 20.05%
-  alpha 0.7  beta 0.0:  WER 20.17%
-  alpha 0.7  beta 1.0:  WER 19.78%
-  alpha 0.7  beta 2.0:  WER 19.61%
-  alpha 1.0  beta 0.0:  WER 24.47%
-  alpha 1.0  beta 1.0:  WER 22.54%
-  alpha 1.0  beta 2.0:  WER 21.51%
-Best: alpha 0.7  beta 2.0
+DECODING LOG  |  wav2vec2 + LoRA (the model from train.log)  |  greedy vs beam vs beam + KenLM  |  FINISHED
+====================================================================================================
 
-validation   greedy  WER  38.35%   CER   8.71%
-validation   beam    WER  37.56%   CER   8.51%
-validation   kenlm   WER  18.97%   CER   5.93%
-stt_test     greedy  WER  38.37%   CER   8.90%
-stt_test     beam    WER  37.75%   CER   8.73%
-stt_test     kenlm   WER  18.61%   CER   5.93%
-hf_test      greedy  WER  22.32%   CER   3.65%
-hf_test      beam    WER  21.68%   CER   3.53%
-hf_test      kenlm   WER  18.30%   CER   3.08%
+MODEL
+  speech model     outputs/wav2vec2-lora-kaa/final_model  (wav2vec2-xls-r-300m + LoRA, trained in train.log)
+  language model   KenLM 4-gram word model: outputs/wav2vec2-lora-kaa/lm/kaa_4gram.arpa
+                   built from the 17,685 training transcripts (STT train + HF train)
+  code             src/decode.py
 
-Saved to: /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/results
+DECODERS
+  greedy   take the most likely letter at each step, no language model
+  beam     beam search (width 100), no language model
+  kenlm    beam search (width 100) + the KenLM language model
+
+DATA
+  STT validation   1,950 clips, 9.28 h  (its first 500 clips are also used to tune alpha/beta)
+  STT test         1,950 clips, 9.18 h
+  HF test          523 clips, 0.71 h
+  folders          STT = data/final/stt, HF = data/final/hf (Mendeley is not used)
+
+RUN
+  machine    server (NVIDIA GB10 GPU), 2026-10-14, finished 18:23
+  saved to   outputs/wav2vec2-lora-kaa/results/  (decoder_results.json, decoded_<set>.csv)
+
+STEP 1: TUNE THE LANGUAGE MODEL  (kenlm decoder, first 500 STT validation clips, WER)
+              beta 0.0   beta 1.0   beta 2.0
+  alpha 0.3     20.38%     20.96%     21.88%
+  alpha 0.5     19.63%     19.73%     20.05%
+  alpha 0.7     20.17%     19.78%     19.61%   <- best: alpha 0.7, beta 2.0
+  alpha 1.0     24.47%     22.54%     21.51%
+  alpha = how much the language model counts, beta = bonus for each word
+
+STEP 2: RESULTS  (WER / CER, kenlm uses alpha 0.7 and beta 2.0)
+  data             clips           greedy             beam            kenlm
+  STT validation   1,950   38.35% / 8.71%   37.56% / 8.51%   18.97% / 5.93%
+  STT test         1,950   38.37% / 8.90%   37.75% / 8.73%   18.61% / 5.93%
+  HF test            523   22.32% / 3.65%   21.68% / 3.53%   18.30% / 3.08%
+  kenlm is the best decoder on every set.
