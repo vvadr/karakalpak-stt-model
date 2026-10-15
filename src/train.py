@@ -14,7 +14,7 @@ from model import build_model, gpu_supports_bf16
 from processor import build_processor
 
 
-class CTCTrainer(Trainer):
+class TrainingLoop(Trainer):
     def _save(self, output_dir=None, state_dict=None):
         output_dir = output_dir or self.args.output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -99,7 +99,7 @@ def main():
     validation_data = load_split(config.VALIDATION_CSVS, config.EVAL_SUBSET_SIZE)
     print(f"Train: {len(train_data)} files ({sum(train_data['duration']) / 3600:.2f} h)   Validation: {len(validation_data)} files")
 
-    trainer = CTCTrainer(
+    train = TrainingLoop(
         model=model,
         args=training_arguments(),
         train_dataset=train_data,
@@ -112,10 +112,10 @@ def main():
 
     checkpoint = latest_checkpoint()
     print("Resuming from:", checkpoint or "nothing, starting from scratch")
-    trainer.train(resume_from_checkpoint=checkpoint)
+    train.train(resume_from_checkpoint=checkpoint)
 
-    save_history(trainer.state.log_history)
-    save_final_model(trainer, processor)
+    save_history(train.state.log_history)
+    save_final_model(train, processor)
     evaluate_tests(config.FINAL_MODEL_DIR)
 
 
