@@ -32,3 +32,41 @@ dist/
 .idea/
 .vscode/
 /Intern Week 1 — Data (ASR).pdf
+
+
+# Virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Training data / audio
+data/
+*.wav
+*.mp3
+*.flac
+
+# Trained models / checkpoints
+outputs/
+checkpoints/
+
+# Large model files
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Hugging Face cache
+.cache/
+huggingface/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor
+.DS_Store
+
+kenlm/outputs/

@@ -1,0 +1,33 @@
+Loading weights:   0%|          | 0/424 [00:00<?, ?it/s]Loading weights: 100%|██████████| 424/424 [00:00<00:00, 13906.13it/s]
+Loading the LM will be faster if you build a binary file.
+Reading /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/lm/kaa_4gram.arpa
+----5---10---15---20---25---30---35---40---45---50---55---60---65---70---75---80---85---90---95--100
+****************************************************************************************************
+
+asr_corpus_test: 1047 files, 4.91 h (alpha 0.7, beta 2.0 from our validation set)
+  greedy  WER  39.59%   CER   9.06%
+  beam    WER  38.71%   CER   8.88%
+  kenlm   WER  21.32%   CER   6.25%
+Saved to: /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/results/benchmarks
+Loading weights:   0%|          | 0/424 [00:00<?, ?it/s]Loading weights: 100%|██████████| 424/424 [00:00<00:00, 12656.64it/s]
+Loading the LM will be faster if you build a binary file.
+Reading /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/lm/kaa_4gram.arpa
+----5---10---15---20---25---30---35---40---45---50---55---60---65---70---75---80---85---90---95--100
+****************************************************************************************************
+
+asr_corpus_validation: 1048 files, 4.97 h (alpha 0.7, beta 2.0 from our validation set)
+  greedy  WER  38.16%   CER   8.69%
+  beam    WER  37.34%   CER   8.51%
+  kenlm   WER  20.27%   CER   5.88%
+Saved to: /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/results/benchmarks
+Loading weights:   0%|          | 0/424 [00:00<?, ?it/s]Loading weights: 100%|██████████| 424/424 [00:00<00:00, 11670.03it/s]
+Loading the LM will be faster if you build a binary file.
+Reading /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/lm/kaa_4gram.arpa
+----5---10---15---20---25---30---35---40---45---50---55---60---65---70---75---80---85---90---95--100
+****************************************************************************************************
+
+whisper_test_test: 1018 files, 4.82 h (alpha 0.7, beta 2.0 from our validation set)
+  greedy  WER  38.56%   CER   8.80%
+  beam    WER  37.65%   CER   8.60%
+  kenlm   WER  20.64%   CER   6.04%
+Saved to: /home/intern/AI & ML/outputs/wav2vec2-lora-kaa/results/benchmarks
