@@ -12,7 +12,7 @@ SAMPLING_RATE = 16000
 WORD_SEPARATOR = "|"
 UNKNOWN_TOKEN = "[UNK]"
 PAD_TOKEN = "[PAD]"
-IGNORED_LABEL_ID = -100
+
 
 BASE_MODEL = "facebook/wav2vec2-xls-r-300m"
 OUTPUT_DIR = ROOT / "outputs" / "wav2vec2-lora-kaa"
@@ -35,17 +35,17 @@ TRAIN_SUBSET_SIZE = None
 EVAL_SUBSET_SIZE = None
 SUBSET_MAX_SECONDS = None
 
-RUN_ON_MAC = bool(os.environ.get("LOCAL"))
-if RUN_ON_MAC:
-    OUTPUT_DIR = ROOT / "outputs" / "wav2vec2-lora-kaa-local"
-    TRAIN_SUBSET_SIZE = 3000
-    EVAL_SUBSET_SIZE = 300
-    SUBSET_MAX_SECONDS = 20
-    EPOCHS = 5
-    BATCH_SIZE = 4
-    GRADIENT_ACCUMULATION = 4
-    NUM_WORKERS = 0
-    GRADIENT_CHECKPOINTING = True
+# RUN_ON_MAC = bool(os.environ.get("LOCAL"))
+# if RUN_ON_MAC:
+#     OUTPUT_DIR = ROOT / "outputs" / "wav2vec2-lora-kaa-local"
+#     TRAIN_SUBSET_SIZE = 3000
+#     EVAL_SUBSET_SIZE = 300
+#     SUBSET_MAX_SECONDS = 20
+#     EPOCHS = 5
+#     BATCH_SIZE = 4
+#     GRADIENT_ACCUMULATION = 4
+#     NUM_WORKERS = 0
+#     GRADIENT_CHECKPOINTING = True
 
 VOCAB_PATH = OUTPUT_DIR / "vocab.json"
 CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"

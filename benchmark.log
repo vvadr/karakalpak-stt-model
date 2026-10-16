@@ -1,22 +1,3 @@
-BENCHMARK LOG  |  wav2vec2 + LoRA (the model from train.log)  |  3 outside test sets  |  FINISHED
-====================================================================================================
-
-MODEL
-  speech model   outputs/wav2vec2-lora-kaa/final_model  (wav2vec2-xls-r-300m + LoRA, trained in train.log)
-  decoders       greedy, beam (width 100), kenlm (beam + KenLM 4-gram, alpha 0.7 and beta 2.0 from decode.log)
-  code           src/benchmark.py
-
-DATA  (made by scripts/prepare_benchmarks.py, stored in data/benchmarks/)
-  asr_corpus test         1,047 clips, 4.91 h   test split of the Karakalpak speech corpus (~/asr_project)
-  asr_corpus validation   1,048 clips, 4.97 h   validation split of the same corpus
-  whisper_test            1,018 clips, 4.82 h   test split of the Whisper project (~/whisper_kaa)
-                                                only its data: the Whisper model is not used in this log
-
-RUN
-  machine    server (NVIDIA GB10 GPU), 2026-10-14, finished 19:23
-  saved to   outputs/wav2vec2-lora-kaa/results/benchmarks/  (one .json and one .csv per test set)
-
-RESULTS  (WER / CER)
   test set                clips    hours           greedy             beam            kenlm
   asr_corpus test         1,047   4.91 h   39.59% / 9.06%   38.71% / 8.88%   21.32% / 6.25%
   asr_corpus validation   1,048   4.97 h   38.16% / 8.69%   37.34% / 8.51%   20.27% / 5.88%

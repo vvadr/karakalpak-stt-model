@@ -14,7 +14,7 @@ if __name__ == "__main__":
     T,B,C = 128, 2, 32
     t = 50
     blank = 0
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = "mps" if torch.mps.is_available() else "cpu"
 
     logits = torch.randn(T,B,C).requires_grad_().to(device)
     log_probs = logits.log_softmax(dim=-1).to(device)

@@ -18,10 +18,7 @@ def load_base_model(processor):
     return Wav2Vec2ForCTC.from_pretrained(
         config.BASE_MODEL,
         vocab_size=len(processor.tokenizer),
-        pad_token_id=processor.tokenizer.pad_token_id,
-        ctc_loss_reduction="mean",
-        ctc_zero_infinity=True,
-        layerdrop=0.0,
+        pad_token_id=processor.tokenizer.pad_token_id
     )
 
 
