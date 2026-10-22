@@ -1,4 +1,56 @@
-# Python bytecode and caches
+# Local datasets, training runs, model caches, and publication exports.
+# Anchor these paths so Python packages such as src/.../data stay publishable.
+/data/
+/outputs/
+/checkpoints/
+/publication/
+/.cache/
+/huggingface/
+/wandb/
+/mlruns/
+/runs/
+
+# Audio/video, dataset shards, weights, language models, and archives.
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.mp4
+*.ogg
+*.opus
+*.webm
+*.parquet
+*.arrow
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.tflite
+*.arpa
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+*.tar.zst
+
+# Small historical experiment assets are intentionally included in Git.
+!/kaa.arpa
+!/lm_text.txt
+!/vocab.json
+
+# Raw logs are local. These three small, curated historical reports stay public.
+*.log
+!/train.log
+!/decode.log
+!/benchmark.log
+
+# Python environments, caches, and build output.
+.venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,67 +58,27 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 htmlcov/
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Jupyter
-.ipynb_checkpoints/
-/data/
-# Local model weights, training history, and split manifests
-/checkpoints/
-
-# Build and packaging output
 build/
 dist/
 *.egg-info/
 
-# Local environment and editor files
+# Notebook autosaves, credentials, local tools, and editor state.
+.ipynb_checkpoints/
 .env
 .env.*
 !.env.example
+/.aws/
+/.ssh/
+/.codex/
+/.agents/
 .DS_Store
 .idea/
 .vscode/
+*.pem
+*.key
 /Intern Week 1 — Data (ASR).pdf
 
-
-# Virtual environments
-.venv/
-venv/
-
-# Python cache
-__pycache__/
-*.pyc
-
-# Training data / audio
-data/
-*.wav
-*.mp3
-*.flac
-
-# Trained models / checkpoints
-outputs/
-checkpoints/
-
-# Large model files
-*.safetensors
-*.bin
-*.pt
-*.pth
-*.ckpt
-
-# Hugging Face cache
-.cache/
-huggingface/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# OS/editor
-.DS_Store
-
+# KenLM is tracked as a pinned submodule, not as copied build output.
 kenlm/outputs/
