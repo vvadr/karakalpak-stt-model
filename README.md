@@ -4,13 +4,35 @@ A research pipeline for **Karakalpak speech-to-text** using **wav2vec2 XLS-R 300
 
 **Recorded results:** 18.61% WER on news speech and 18.30% WER on literary speech with beam search and a KenLM 4-gram language model.
 
-[Results](#results) · [Datasets](#datasets) · [Workflow](#workflow) · [Publication](#publishing-datasets-and-models) · [Documentation](#documentation)
+[Transcribe](#transcribe-with-the-published-model) · [Results](#results) · [Datasets](#datasets) · [Workflow](#workflow) · [Publication](#publishing-datasets-and-models) · [Documentation](#documentation)
+
+Find all releases in the [Hugging Face collection](https://huggingface.co/collections/iamabdulaziz/karakalpak-speech-recognition-6adb410958c2ef152fe249f2).
 
 ## Project status
 
-This is a research project with a completed, documented server experiment. The scores below come from the saved server logs; they have not been independently reproduced from the server weights during the latest local review.
+This research release includes the completed model, matching KenLM, datasets, recorded evaluations and resumable training checkpoints. The model and LM were retrieved from the training server with matching SHA256 hashes. Reported WER/CER were independently recomputed from saved predictions, and the complete decoder was reloaded successfully for a real CPU inference check. No retraining was performed during publication.
 
-Datasets, model weights, training checkpoints, and prepared upload folders are stored outside Git. Public Hugging Face downloads are pending publication. The current source has a known missing `IGNORED_LABEL_ID` setting affecting training and batch evaluation, and the FastAPI application is a stub. See the [readiness review](docs/release_readiness.md) before running or deploying the pipeline.
+| Release | Download |
+| --- | --- |
+| Trained model, KenLM, evaluation evidence and resumable checkpoints | [iamabdulaziz/wav2vec2-xls-r-300m-karakalpak](https://huggingface.co/iamabdulaziz/wav2vec2-xls-r-300m-karakalpak) |
+| STT news dataset | [iamabdulaziz/karakalpak-stt-news](https://huggingface.co/datasets/iamabdulaziz/karakalpak-stt-news) |
+| Literary dataset | [iamabdulaziz/karakalpak-literary-cleaned](https://huggingface.co/datasets/iamabdulaziz/karakalpak-literary-cleaned) |
+
+Large artifacts are hosted on Hugging Face rather than in Git. The archived training source has a known missing `IGNORED_LABEL_ID` setting affecting training and batch evaluation; the standalone inference command below avoids that path. The FastAPI application remains a stub. See the [readiness review](docs/release_readiness.md) for the publication follow-up and remaining production limitations.
+
+## Transcribe with the published model
+
+Use the separate inference environment; it leaves the training/notebook dependencies unchanged:
+
+```bash
+git clone https://github.com/vvadr/karakalpak-stt-model.git
+cd karakalpak-stt-model
+uv venv .venv-inference --python 3.12
+uv pip install --python .venv-inference/bin/python -r requirements-inference.txt
+.venv-inference/bin/python scripts/release/transcribe_huggingface.py clip.wav --decoder kenlm
+```
+
+Input must be 16 kHz audio; stereo is averaged to mono. The client downloads only inference assets and defaults to the matching KenLM decoder. Use `--decoder greedy`, `--device cpu`, `--revision COMMIT_SHA`, or `--model /local/bundle` as needed. The NumPy/decoder dependency constraints were verified in a fresh CPU environment. This command provides file transcription, not a hosted production API.
 
 ## Results
 
@@ -54,7 +76,7 @@ Together, the full train/validation/test collection contains **22,108 recordings
 
 The existing validator passed all **37 checks** in the 2026-10-22 local audit. There are 284 STT and 7 literary recordings flagged for listening review; flags are candidates for review rather than confirmed errors.
 
-The literary source is [kaa-ml/karakalpak-audio-dataset](https://huggingface.co/datasets/kaa-ml/karakalpak-audio-dataset). Source attribution and redistribution terms must be completed in the dataset cards before public release. See the [publication guide](docs/publication_guide.md).
+The literary source is [kaa-ml/karakalpak-audio-dataset](https://huggingface.co/datasets/kaa-ml/karakalpak-audio-dataset), whose pinned card declares MIT. Its original card and revision are preserved in the derivative release. The supplied STT source did not record its original publisher or license; its release card states that explicitly and assigns no new license. See the [publication guide](docs/publication_guide.md).
 
 ## Setup
 
@@ -118,7 +140,7 @@ Settings are in `src/config.py`. The documented server run writes to `outputs/wa
 
 ## Publishing datasets and models
 
-GitHub holds the code, documentation, small experiment assets, and curated result logs. Hugging Face is the planned home for the two prepared datasets and the complete model/decoder release.
+GitHub holds the code, documentation, small experiment assets, and curated result logs. The linked Hugging Face repositories hold the two datasets and complete model/decoder release.
 
 ```bash
 # Check which files are eligible for GitHub.
@@ -142,7 +164,7 @@ Follow the [step-by-step upload instructions](docs/upload_steps.md) for the exac
 | --- | --- |
 | `src/` | Active wav2vec2, LoRA, decoding, evaluation, and transcription code |
 | `scripts/` | Dataset preparation, source recovery, validation, and benchmark tools |
-| `scripts/release/` | GitHub file checker and Hugging Face export helper |
+| `scripts/release/` | Export, standalone inference, GitHub checks and remote file-integrity verification |
 | `docs/` | Readiness audit, architecture, publication instructions, and pipeline PDFs |
 | `kenlm/` | Pinned upstream Git submodule |
 | `train.log`, `decode.log`, `benchmark.log` | Curated evidence from the documented server experiment |
@@ -165,4 +187,6 @@ The root `kaa.arpa`, `lm_text.txt`, and `vocab.json` belong to the older `karaka
 - [Project architecture](docs/project_architecture.md): current dependencies and proposed organization.
 - [Publication guide](docs/publication_guide.md): release contents, provenance, and hosting choices.
 - [Upload instructions](docs/upload_steps.md): exact preparation, upload, and verification commands.
+- [Model card](docs/huggingface/model_card.md), [news dataset card](docs/huggingface/stt_dataset_card.md), and [literary dataset card](docs/huggingface/hf_dataset_card.md): versioned release documentation.
+- [Release manifest](docs/release_manifest.json): exact Hub revisions, file/hash verification and anonymous inference evidence.
 - [Pipeline map](docs/pipeline/asr_pipeline_map.pdf) and [walkthrough](docs/pipeline/asr_pipeline_walkthrough.pdf): historical diagrams and annotated code snapshots.

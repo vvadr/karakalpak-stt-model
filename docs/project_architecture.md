@@ -1,6 +1,6 @@
 # Project architecture and release flow
 
-This is a proposed organization, based on the 2026-10-22 review. Python files, imports and artifact paths have not been moved or changed. The current executable entry points are still under `src/`.
+This document records the 2026-10-22 architecture review and a proposed source refactor. The original `src/` implementation and imports were preserved. The 2026-10-23 publication work added standalone export, inference and remote-integrity clients under `scripts/release/`, a separate inference dependency set, and linked Hugging Face releases.
 
 ## Current implementation
 
@@ -26,9 +26,13 @@ flowchart TD
     MODEL --> INFER
     KENLM --> INFER
     API[src/main.py: API stub]
+    MODEL --> BUNDLE[Published model bundle]
+    KENLM --> BUNDLE
+    SETTINGS --> BUNDLE
+    BUNDLE --> HFCLIENT[scripts/release/transcribe_huggingface.py]
 ```
 
-The diagram describes dependencies. The missing configuration setting currently blocks training and batch evaluation; the advertised server model and decoder assets are absent locally. The API stub has no connection to inference.
+The missing configuration setting still affects the archived training/batch path. The actual server model and decoder assets have now been retrieved, verified and released. The new standalone inference client reads the release bundle directly, avoiding the training path. The API stub has no connection to inference.
 
 The current design already has useful boundaries: dataset construction, dataset validation, acoustic model training, LM construction, decoder tuning, evaluation and single-file transcription. Keep those responsibilities while making run and release identity explicit.
 

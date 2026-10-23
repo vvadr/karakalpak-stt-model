@@ -49,6 +49,7 @@
 
 # Python environments, caches, and build output.
 .venv/
+/.venv-inference/
 venv/
 env/
 __pycache__/

@@ -2,6 +2,16 @@
 
 The code and publication helpers are published in [vvadr/karakalpak-stt-model](https://github.com/vvadr/karakalpak-stt-model). Dataset and model uploads are separate steps. The ASR implementation under `src/` was preserved during publication setup.
 
+## Published artifacts
+
+The 2026-10-23 research release is available at:
+
+- [STT news dataset](https://huggingface.co/datasets/iamabdulaziz/karakalpak-stt-news).
+- [Literary dataset](https://huggingface.co/datasets/iamabdulaziz/karakalpak-literary-cleaned).
+- [Model, KenLM and training checkpoints](https://huggingface.co/iamabdulaziz/wav2vec2-xls-r-300m-karakalpak).
+
+Use the README's standalone inference quick start to transcribe files. The remaining steps document how maintainers prepare and upload a later version; the initial release is already published.
+
 ## 1. Get the published code
 
 On a new machine, clone the repository:
@@ -36,8 +46,8 @@ Both final corpora were exported locally as Parquet with embedded WAV bytes. Upl
 
 | Source data | Upload this prepared folder | Hugging Face repository name |
 | --- | --- | --- |
-| `data/final/stt/` | `publication/datasets/karakalpak-stt-news/` | `YOUR_HF_NAME/karakalpak-stt-news` |
-| `data/final/hf/` | `publication/datasets/karakalpak-literary-cleaned/` | `YOUR_HF_NAME/karakalpak-literary-cleaned` |
+| `data/final/stt/` | `publication/datasets/karakalpak-stt-news/` | `iamabdulaziz/karakalpak-stt-news` |
+| `data/final/hf/` | `publication/datasets/karakalpak-literary-cleaned/` | `iamabdulaziz/karakalpak-literary-cleaned` |
 
 Each prepared folder contains:
 
@@ -63,9 +73,9 @@ Skip those two export commands on this Mac because the folders already exist. Re
 
 ## 3. Finish the dataset cards and source terms
 
-Edit each prepared folder's `README.md` and fill its TODOs: authors/upstream credits, original source URL/revision, release terms, review decisions, citation and intended use. Add the actual applicable `LICENSE` and license metadata. The STT source terms are not documented yet; the literary source is a derived copy of an existing gated HF dataset. See [publication_guide.md](publication_guide.md) for the source references and remaining questions.
+For later versions, update each prepared folder's card with actual authors/upstream credits, source revisions, terms, review decisions, citation and intended use. The initial release preserves the original literary MIT card; the STT card explicitly records that the supplied source did not specify a publisher or license. No unverified open license is assigned. Versioned copies of the completed release cards are under `docs/huggingface/`.
 
-Keep unresolved exports private until those terms are established. The exporter deliberately labels the cards DRAFT and does not assign an unsupported license. Add the public GitHub release URL once it exists.
+The export helper creates editable drafts for new runs. Complete their factual provenance before replacing the public release, and do not silently assign a license absent from the source material. Link the exact GitHub/model/dataset revisions used.
 
 After editing a card or adding license/provenance files, refresh and verify its checksums:
 
@@ -105,11 +115,11 @@ uvx hf download "$HF_NAMESPACE/karakalpak-literary-cleaned" --repo-type dataset 
 python3 -B scripts/release/prepare_huggingface.py verify publication/download-check/literary
 ```
 
-When cards, terms and content checks are complete, change each repository's visibility to **Public** in its Settings. Its URL will be `https://huggingface.co/datasets/YOUR_HF_NAME/REPOSITORY_NAME`.
+When cards, terms and content checks are complete, change each repository's visibility to **Public** in its Settings. Its URL will be `https://huggingface.co/datasets/iamabdulaziz/REPOSITORY_NAME`.
 
 ## 5. Prepare the actual server model
 
-The advertised model is missing on this Mac. The older `-local` output and checkpoints are different experiments. Do not upload them under the newer model's scores.
+The actual server run was retrieved and published on 2026-10-23. The older `-local` output and 39-token checkpoints remain different experiments. For a future run, prepare the actual matching run rather than relabelling older weights.
 
 On the machine holding the full training run, use the updated project and run:
 
@@ -155,7 +165,7 @@ publication/models/wav2vec2-xls-r-300m-karakalpak/
   checksums.sha256
 ```
 
-The helper rewrites exported evaluation audio paths into portable dataset-relative paths and records decoder settings from that run. It does not change reference/prediction text. Full optimizer checkpoints and raw training data are excluded from this inference bundle.
+The helper rewrites exported evaluation audio paths into portable dataset-relative paths and records decoder settings without changing reference/prediction text. The initial published release also includes the two original resumable checkpoints under `training/checkpoints/`, separate from the root inference assets. The standalone client excludes those checkpoints from normal inference downloads.
 
 Complete the model card, licensing/notices, exact training provenance and dataset revision links. Set the actual training commit in the manifest once established. Check a reload and evaluation of this actual model before presenting the reported scores as reproduced. The helper assembles files; it does not certify accuracy or implement a new inference loader.
 
@@ -172,9 +182,9 @@ uvx hf repos create "$HF_NAMESPACE/wav2vec2-xls-r-300m-karakalpak" --repo-type m
 uvx hf upload "$HF_NAMESPACE/wav2vec2-xls-r-300m-karakalpak" publication/models/wav2vec2-xls-r-300m-karakalpak . --repo-type model
 ```
 
-After downloading/reloading the uploaded revision and completing the model card, make the model repository public. Its URL will be `https://huggingface.co/YOUR_HF_NAME/wav2vec2-xls-r-300m-karakalpak`.
+After downloading/reloading the uploaded revision and completing the model card, make the model repository public. Its URL will be `https://huggingface.co/iamabdulaziz/wav2vec2-xls-r-300m-karakalpak`.
 
-Uploading only weights is incomplete. The approximately 18% reported WER requires the matching KenLM and decoder settings. A plain Transformers greedy call has different reported results. The existing CLI still expects its original local paths; the portable bundle's decoder configuration is documented for future loader work.
+Uploading only weights is incomplete. The approximately 18% reported WER requires the matching KenLM and decoder settings. A plain Transformers greedy call has different reported results. The new `scripts/release/transcribe_huggingface.py` command loads the published bundle and decoder directly. The archived `src/transcribe.py` retains its original local paths.
 
 ## 7. Link the release
 
@@ -186,4 +196,4 @@ An interactive demo is a later, separate Hugging Face Space. No Space or product
 
 The GitHub candidate passes the artifact guard, including the three intentionally retained historical root assets. The STT draft has 41 shards, approximately 9.03 GB; the literary draft has 3 shards, approximately 0.35 GB. Every exported row's ID, transcript and duration was compared with its source split. Datasets recognized all five splits and their Audio features; an embedded audio sample from each split matched the original file bytes. All 58 checksummed export files passed SHA256 verification.
 
-The model helper's missing-assets path was checked against this checkout. A successful export or evaluation of the actual server model remains unverified until that complete run is available.
+The completed server model export was subsequently verified against server hashes. Its saved prediction metrics were recomputed, and the standalone client successfully reloaded the full acoustic model/KenLM for a real CPU spot check. See the readiness report's 2026-10-23 follow-up and the model card for the precise evidence and limitations.

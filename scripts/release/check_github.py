@@ -7,7 +7,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL_DIRS = {
-    "data", "outputs", "checkpoints", "publication", ".venv", "venv", "env",
+    "data", "outputs", "checkpoints", "publication", ".venv", ".venv-inference", "venv", "env",
     ".cache", "huggingface", "wandb", "mlruns", "runs", ".aws", ".ssh", ".codex", ".agents",
 }
 LOCAL_FILES = {"Intern Week 1 — Data (ASR).pdf"}

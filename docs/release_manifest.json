@@ -1,0 +1,68 @@
+{
+  "released_on": "2026-10-23",
+  "github_repository": "https://github.com/vvadr/karakalpak-stt-model",
+  "huggingface_collection": "https://huggingface.co/collections/iamabdulaziz/karakalpak-speech-recognition-6adb410958c2ef152fe249f2",
+  "artifacts": [
+    {
+      "repo_id": "iamabdulaziz/karakalpak-stt-news",
+      "repo_type": "dataset",
+      "revision": "e1d02fbc8b4a08d7cfd292bf63fea3d2d27df161",
+      "files_verified": 49,
+      "bytes_verified": 9032150182,
+      "private": false,
+      "content_hashes_match": true,
+      "anonymous_metadata_access_verified": true
+    },
+    {
+      "repo_id": "iamabdulaziz/karakalpak-literary-cleaned",
+      "repo_type": "dataset",
+      "revision": "36be285be8eab7bd4a6b03de44b1003410b37cea",
+      "files_verified": 13,
+      "bytes_verified": 345642086,
+      "private": false,
+      "content_hashes_match": true,
+      "anonymous_metadata_access_verified": true
+    },
+    {
+      "repo_id": "iamabdulaziz/wav2vec2-xls-r-300m-karakalpak",
+      "repo_type": "model",
+      "revision": "75f88348f84f187761ae425b6e0d85fefb33349a",
+      "files_verified": 64,
+      "bytes_verified": 1674576662,
+      "private": false,
+      "content_hashes_match": true
+    }
+  ],
+  "total_files_verified": 126,
+  "total_bytes_verified": 11052368930,
+  "verification": {
+    "all_artifacts_public": true,
+    "public_dataset_split_indexing_complete": true,
+    "public_audio_previews_decoded_for_both_datasets": true,
+    "anonymous_inference": {
+      "text": "azıraqtan soń bılay dedi",
+      "decoder": "kenlm",
+      "device": "cpu",
+      "audio_seconds": 2.020125,
+      "model": "iamabdulaziz/wav2vec2-xls-r-300m-karakalpak",
+      "revision": "75f88348f84f187761ae425b6e0d85fefb33349a",
+      "anonymous_download": true,
+      "inference_assets_only": true,
+      "reference_match": true,
+      "verified_at": "2026-10-23"
+    }
+  },
+  "training": {
+    "completed_on": "2026-10-14",
+    "new_training_performed_during_publication": false,
+    "model_sha256": "4bc992a2b812d9784e1d70eb48f632bc3035af5fcd8d2e095dd6b0da53bc4219",
+    "kenlm_sha256": "c2fa1520787c61149f9ae3223a886cfadb38efd6ac4b92a9df63b8492f122e72",
+    "retained_checkpoints": [
+      "checkpoint-1659",
+      "checkpoint-2212"
+    ],
+    "exact_original_training_commit_recorded": false
+  },
+  "scope": "Public research artifact release with file inference; no production API deployment.",
+  "source_terms": "STT original publisher/license were not recorded in supplied material; the public card states this explicitly. Literary metadata follows the MIT declaration of the preserved upstream card."
+}

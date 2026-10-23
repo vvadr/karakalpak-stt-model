@@ -1,6 +1,6 @@
 # Publishing the code, datasets and models
 
-Plan prepared on 2026-10-22. No external repositories were created and no uploads were performed.
+Initial plan prepared on 2026-10-22; the research artifacts were published on 2026-10-23. The model and two datasets are linked below. The API and optional demo remain outside this artifact release.
 
 For the implemented preparation helpers, current export paths, and copyable commands, follow
 [upload_steps.md](upload_steps.md). This document explains the publication design and required evidence.
@@ -10,14 +10,14 @@ For the implemented preparation helpers, current export paths, and copyable comm
 | Material | Destination | Proposed name or scope |
 | --- | --- | --- |
 | Code, training recipe, editable documentation, small reports | Existing GitHub repository | `vvadr/karakalpak-stt-model` |
-| STT news dataset | Hugging Face dataset repository | `YOUR_HF_NAME/karakalpak-stt-news` |
-| Cleaned literary dataset derived from the existing HF source | Separate Hugging Face dataset repository | `YOUR_HF_NAME/karakalpak-literary-cleaned` |
-| Merged acoustic model plus matching LM and decoder configuration | Hugging Face model repository | `YOUR_HF_NAME/wav2vec2-xls-r-300m-karakalpak` |
+| STT news dataset | Hugging Face dataset repository | `iamabdulaziz/karakalpak-stt-news` |
+| Cleaned literary dataset derived from the existing HF source | Separate Hugging Face dataset repository | `iamabdulaziz/karakalpak-literary-cleaned` |
+| Merged acoustic model plus matching LM and decoder configuration | Hugging Face model repository | `iamabdulaziz/wav2vec2-xls-r-300m-karakalpak` |
 | Optional training adapter | Separate model repository or clearly versioned adapter area | Include LoRA, trained CTC head and exact base-model revision |
-| Public interactive demo | Hugging Face Space | `YOUR_HF_NAME/karakalpak-asr-demo` |
+| Public interactive demo | Hugging Face Space | `iamabdulaziz/karakalpak-asr-demo` |
 | Stable academic citation | Hugging Face DOI for a finalized model/dataset; optionally Zenodo for GitHub release archiving | Mint only after the release names, authors and contents are final |
 
-`YOUR_HF_NAME` is a placeholder; the GitHub username does not establish the Hugging Face account name. The proposed artifact repositories have not been checked for name availability.
+The authenticated release account is `iamabdulaziz`. The two dataset repositories and main model repository are the actual release destinations. The optional Space and DOI are future publishing options, not existing releases.
 
 Hugging Face provides dedicated [model repositories](https://huggingface.co/docs/hub/models), [dataset publishing](https://huggingface.co/docs/hub/datasets-adding), and [Spaces for demos](https://huggingface.co/docs/hub/spaces-overview). Model and dataset cards provide discoverability and the account of how the work was produced. Link every artifact back to the exact GitHub release and link the code back to all artifact pages.
 
@@ -69,9 +69,9 @@ The literary corpus has train/test only; do not invent a validation split and pr
 
 ### Source rights and credits need completion
 
-The literary source is [`kaa-ml/karakalpak-audio-dataset`](https://huggingface.co/datasets/kaa-ml/karakalpak-audio-dataset). Local provenance records snapshot `0f64c03be3a9b97fbdfc64934d2a81cddff174a8`. Its current public page labels the license MIT and gates file access behind accepted conditions. The gate's complete conditions were not available through the public page. Review the applicable source terms and preserve the required credits before publishing a derived copy.
+The literary source is [`kaa-ml/karakalpak-audio-dataset`](https://huggingface.co/datasets/kaa-ml/karakalpak-audio-dataset), revision `0f64c03be3a9b97fbdfc64934d2a81cddff174a8`. Its exact card was retrieved with the existing account and preserved in the derivative provenance. It declares MIT and uses automatic access gating at the upstream repository. Original source/contributor credits and that declared license are recorded in the released literary card.
 
-The STT provenance currently identifies local Parquet shards, not a public upstream record or documented redistribution permission. Establish the actual collection source, transcript/audio ownership and release terms. Do not assign a blanket open license based solely on having the files locally. If redistribution is unavailable, publish the recipe and permitted metadata with instructions for obtaining the upstream data.
+The STT source material identifies local Parquet shards but does not record the original publisher or a license. The released dataset card records that absence explicitly; no unverified open license or creator attribution is invented. Add the actual source terms when established.
 
 The base [`facebook/wav2vec2-xls-r-300m`](https://huggingface.co/facebook/wav2vec2-xls-r-300m) model currently declares Apache 2.0. Record the exact base revision and applicable notices. The project code, dataset recordings/transcripts, derived model and KenLM source text need their own documented provenance; the base model's license does not settle the dataset's terms.
 
@@ -83,7 +83,7 @@ There are currently 284 flagged STT clips and 7 flagged literary clips. Review f
 
 ## Model release contents
 
-Retrieve the **server** run `outputs/wav2vec2-lora-kaa/` from the actual training machine. The matching assets are missing locally. The `-local` output and older 39-token checkpoints have different quality, vocabulary and training data.
+The complete **server** run `outputs/wav2vec2-lora-kaa/` was retrieved and its acoustic-model/LM hashes matched across the transfer. The public release is [iamabdulaziz/wav2vec2-xls-r-300m-karakalpak](https://huggingface.co/iamabdulaziz/wav2vec2-xls-r-300m-karakalpak). The `-local` output and older 39-token checkpoints are different experiments and were not substituted.
 
 Assemble a dedicated export with the following contents:
 
@@ -99,6 +99,7 @@ wav2vec2-xls-r-300m-karakalpak/
   ...                            any additional processor/tokenizer files in the server export
   lm/
     kaa_4gram.arpa                matching server LM, not root legacy kaa.arpa
+    lm_text.txt                  exact training transcript text used by KenLM
   decoder_config.json            release settings, not machine-local paths
   evaluation/
     decoder_results.json
@@ -110,14 +111,19 @@ wav2vec2-xls-r-300m-karakalpak/
     environment.json
     provenance.json              source commit, base/data revisions and split hashes
     history.csv
+    dataset_revisions.json
+    checkpoints/                 original retained resumable checkpoints
+  transcribe.py                  standalone local/Hub inference client
+  requirements-inference.txt     separate verified inference dependency set
+  examples/                      real sample and reference
   checksums.sha256
 ```
 
-This is a proposed release schema. Some files above still need to be created from verified server evidence; copying the existing folder does not create them automatically. Include every processor/tokenizer file actually emitted by the server export, even when it is not listed above.
+This schema describes the assembled research release. It includes every processor/tokenizer file emitted by the server export, recorded and recomputed evaluation evidence, original retained checkpoints and explicit provenance. The original training commit was not captured; the available post-run source commit is identified separately.
 
 `decoder_config.json` should record the decoder type, beam width, alpha, beta, LM path relative to the release, vocabulary identity and normalization expectations. The reported server settings are beam width 100, alpha 0.7 and beta 2.0; verify them against the actual server result JSON.
 
-Uploading only `model.safetensors` is incomplete. Uploading weights and tokenizer without KenLM supports the acoustic decoding mode but does not reproduce the approximately 18% WER claims. A model card should distinguish greedy, beam-only and KenLM scores, and its usage example must load the correct decoder for the stated result. Existing CLI code will still need a future change to read a portable bundle configuration.
+Uploading only `model.safetensors` is incomplete. Uploading weights and tokenizer without KenLM supports the acoustic decoding mode but does not reproduce the approximately 18% WER claims. A model card should distinguish greedy, beam-only and KenLM scores, and its usage example must load the correct decoder for the stated result. The new `scripts/release/transcribe_huggingface.py` client consumes the portable bundle configuration and was verified on a real CPU sample in a fresh environment. The archived `src/transcribe.py` still uses its original paths.
 
 The [model card](https://huggingface.co/docs/hub/model-cards) should explain: base model/revision, LoRA rank/targets, trained CTC head, merged export, dataset links/revisions, training command/configuration/hardware, best-epoch selection, normalization, decoder settings, results, limitations and intended uses. Document the existing padding-metric issue and the later verified scoring procedure. Publish a tested loading example against the released revision.
 

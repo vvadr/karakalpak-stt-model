@@ -2,6 +2,16 @@
 
 Reviewed on 2026-10-22 against local `main`, commit `89bdbf7`.
 
+## Publication follow-up — 2026-10-23
+
+The historical findings below describe the 2026-10-22 local audit. Publication work subsequently established SSH access to the training server and retrieved the actual completed run. The model and KenLM hashes matched between server and local copies. The recorded validation/test WER and CER were independently recomputed from the saved predictions and agreed with the reported metrics.
+
+The model bundle now includes the merged model/processor, matching 4-gram LM and text, decoder configuration, original retained resumable checkpoints, evaluation evidence, training/environment/provenance records, and a standalone inference client. A fresh, separate inference environment successfully reloaded the model and KenLM on CPU and transcribed the included 2.02-second sample exactly. This was an inference spot check, not retraining or a fresh full-test acoustic evaluation.
+
+Releases: [model](https://huggingface.co/iamabdulaziz/wav2vec2-xls-r-300m-karakalpak), [STT dataset](https://huggingface.co/datasets/iamabdulaziz/karakalpak-stt-news), [literary dataset](https://huggingface.co/datasets/iamabdulaziz/karakalpak-literary-cleaned). Their cards record the available attribution and provenance; the STT source license remains unspecified in the supplied material. The original pre-refactor training commit was not captured and is not fabricated.
+
+The archived `src/` training code and API stub were preserved. Their earlier configuration, padded-metric, resume and serving limitations remain; the new inference client avoids the training path. The publication completes a usable research artifact release, not a production API qualification.
+
 **Decision: the project is not ready for a production service. A public research release is a reasonable next milestone after the release blockers below are addressed.**
 
 This review covers the active wav2vec2 pipeline, all tracked Python files, data preparation and validation tools, the unfinished alternative architecture, pipeline PDF documentation, dependency declarations, local datasets, local model artifacts, and saved results. KenLM is treated as an upstream dependency rather than a project implementation. The latest server weights were not available in this checkout, so the server model's quality and reload behavior could not be independently verified.
